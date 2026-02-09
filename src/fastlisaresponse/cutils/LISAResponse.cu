@@ -216,10 +216,12 @@ void interp(double *result_hp, double *result_hc, cmplx *input, int h, int d, do
 #define MAX_ORDER 40
 
 CUDA_KERNEL
-void TDI_delay(double *delayed_links, double *input_links, int num_inputs, int num_delays, double *t_arr, int *unit_starts, int *unit_lengths, int *tdi_base_link, int *tdi_link_combinations, double *tdi_signs_in, int *channels, int num_units, int num_channels,
-               int order, double sampling_frequency, int buffer_integer, double *A_in, double deps, int num_A, double *E_in, int tdi_start_ind, Orbits *orbits_in)
+void TDI_delay(double *delayed_links, double *input_links, int num_inputs, int num_delays, double *t_arr, // int *unit_starts, int *unit_lengths, int *tdi_base_link, int *tdi_link_combinations, double *tdi_signs_in, int *channels, int num_units, int num_channels,
+               int order, double sampling_frequency, int buffer_integer, double *A_in, double deps, int num_A, double *E_in, int tdi_start_ind, Orbits *orbits_in, TDIConfig *tdi_config_in)
 {
     Orbits orbits = *orbits_in;
+    TDIConfig tdi_config = *tdi_config_in;
+
     int start, end, increment;
 #ifdef __CUDACC__
     CUDA_SHARED double input[BUFFER_SIZE];
@@ -303,19 +305,19 @@ void TDI_delay(double *delayed_links, double *input_links, int num_inputs, int n
     {
 
         t = t_arr[i];
-        for (int unit_i = start1; unit_i < num_units; unit_i += increment1)
+        for (int unit_i = start1; unit_i < tdi_config.num_units; unit_i += increment1)
         {
-            int unit_start = unit_starts[unit_i];
-            int unit_length = unit_lengths[unit_i];
-            int base_link = tdi_base_link[unit_i];
+            int unit_start = tdi_config.unit_starts[unit_i];
+            int unit_length = tdi_config.unit_lengths[unit_i];
+            int base_link = tdi_config.tdi_base_link[unit_i];
             int base_link_index = orbits.get_link_ind(base_link);
-            int channel = channels[unit_i];
-            double sign = tdi_signs_in[unit_i];
+            int channel = tdi_config.channels[unit_i];
+            double sign = tdi_config.tdi_signs_in[unit_i];
             delay = t;
             for (int sub_i = 0; sub_i < unit_length; sub_i += 1)
             {
                 int combination_index = unit_start + sub_i;
-                int combination_link = tdi_link_combinations[combination_index];
+                int combination_link = tdi_config.tdi_link_combinations[combination_index];
                 int combination_link_index;
                 if (combination_link == -11)
                 {
@@ -345,7 +347,7 @@ void TDI_delay(double *delayed_links, double *input_links, int num_inputs, int n
             min_integer_delay = integer_delay;
 
 #ifdef __CUDACC__
-            int max_thread_num = ((num_delays - 2 * tdi_start_ind) - blockDim.x * blockIdx.x > NUM_THREADS) ? NUM_THREADS : (num_delays - 2 * tdi_start_ind) - blockDim.x * blockIdx.x;
+            int max_thread_num = ((num_delays - 2 * tdi_start_ind) - blockDim.x * blockIdx.x > NUM_THREADS_RESPONSE) ? NUM_THREADS_RESPONSE : (num_delays - 2 * tdi_start_ind) - blockDim.x * blockIdx.x;
             CUDA_SYNC_THREADS;
             if (threadIdx.x == 0)
             {
@@ -396,7 +398,7 @@ void TDI_delay(double *delayed_links, double *input_links, int num_inputs, int n
     }
 }
 
-void LISAResponse::get_tdi_delays(double *delayed_links, double *input_links, int num_inputs, int num_delays, double *t_arr, int *unit_starts, int *unit_lengths, int *tdi_base_link, int *tdi_link_combinations, double *tdi_signs_in, int *channels, int num_units, int num_channels,
+void LISAResponse::get_tdi_delays(double *delayed_links, double *input_links, int num_inputs, int num_delays, double *t_arr, //int *unit_starts, int *unit_lengths, int *tdi_base_link, int *tdi_link_combinations, double *tdi_signs_in, int *channels, int num_units, int num_channels,
                     int order, double sampling_frequency, int buffer_integer, double *A_in, double deps, int num_A, double *E_in, int tdi_start_ind)
 {
     
@@ -405,25 +407,31 @@ void LISAResponse::get_tdi_delays(double *delayed_links, double *input_links, in
         throw std::invalid_argument("Must add orbits with add_orbit_information method.");
     }
 #ifdef __CUDACC__
-    int num_blocks = std::ceil((num_delays - 2 * tdi_start_ind + NUM_THREADS - 1) / NUM_THREADS);
+    int num_blocks = std::ceil((num_delays - 2 * tdi_start_ind + NUM_THREADS_RESPONSE - 1) / NUM_THREADS_RESPONSE);
 
-    dim3 gridDim(num_blocks, num_units * num_channels);
+    // dim3 gridDim(num_blocks, num_units * num_channels);
+    dim3 gridDim(num_blocks, tdi_config->num_units);
 
     Orbits *orbits_gpu;
     gpuErrchk(cudaMalloc(&orbits_gpu, sizeof(Orbits)));
     gpuErrchk(cudaMemcpy(orbits_gpu, orbits, sizeof(Orbits), cudaMemcpyHostToDevice));
 
+    TDIConfig *tdi_config_gpu;
+    gpuErrchk(cudaMalloc(&tdi_config_gpu, sizeof(TDIConfig)));
+    gpuErrchk(cudaMemcpy(tdi_config_gpu, tdi_config, sizeof(TDIConfig), cudaMemcpyHostToDevice));
+
     // printf("RUNNING: %d\n", i);
-    TDI_delay<<<gridDim, NUM_THREADS>>>(delayed_links, input_links, num_inputs, num_delays, t_arr, unit_starts, unit_lengths, tdi_base_link, tdi_link_combinations, tdi_signs_in, channels, num_units, num_channels,
-                                        order, sampling_frequency, buffer_integer, A_in, deps, num_A, E_in, tdi_start_ind, orbits_gpu);
+    TDI_delay<<<gridDim, NUM_THREADS_RESPONSE>>>(delayed_links, input_links, num_inputs, num_delays, t_arr, // unit_starts, unit_lengths, tdi_base_link, tdi_link_combinations, tdi_signs_in, channels, num_units, num_channels,
+                                        order, sampling_frequency, buffer_integer, A_in, deps, num_A, E_in, tdi_start_ind, orbits_gpu, tdi_config_gpu);
 
     cudaDeviceSynchronize();
     gpuErrchk(cudaGetLastError());
     gpuErrchk(cudaFree(orbits_gpu));
+    gpuErrchk(cudaFree(tdi_config_gpu));
 
 #else
-    TDI_delay(delayed_links, input_links, num_inputs, num_delays, t_arr, unit_starts, unit_lengths, tdi_base_link, tdi_link_combinations, tdi_signs_in, channels, num_units, num_channels,
-              order, sampling_frequency, buffer_integer, A_in, deps, num_A, E_in, tdi_start_ind, orbits);
+    TDI_delay(delayed_links, input_links, num_inputs, num_delays, t_arr, // unit_starts, unit_lengths, tdi_base_link, tdi_link_combinations, tdi_signs_in, channels, num_units, num_channels,
+              order, sampling_frequency, buffer_integer, A_in, deps, num_A, E_in, tdi_start_ind, orbits, tdi_config);
 
 #endif
 }
@@ -453,9 +461,9 @@ void response(double *y_gw, double *t_data, double *k_in, double *u_in, double *
     CUDA_SHARED int links[NLINKS];
 
 #ifdef __CUDACC__
-    CUDA_SHARED double x_rec_all[NUM_THREADS * 3];
-    CUDA_SHARED double x_em_all[NUM_THREADS * 3];
-    CUDA_SHARED double n_all[NUM_THREADS * 3];
+    CUDA_SHARED double x_rec_all[NUM_THREADS_RESPONSE * 3];
+    CUDA_SHARED double x_em_all[NUM_THREADS_RESPONSE * 3];
+    CUDA_SHARED double n_all[NUM_THREADS_RESPONSE * 3];
 
     double *x_rec = &x_rec_all[3 * threadIdx.x];
     double *x_em = &x_em_all[3 * threadIdx.x];
@@ -626,7 +634,7 @@ void response(double *y_gw, double *t_data, double *k_in, double *u_in, double *
             min_integer_delay = (integer_delay_rec < integer_delay_em) ? integer_delay_rec : integer_delay_em;
 
 #ifdef __CUDACC__
-            int max_thread_num = ((num_delays - 2 * projections_start_ind) - blockDim.x * blockIdx.x > NUM_THREADS) ? NUM_THREADS : (num_delays - 2 * projections_start_ind) - blockDim.x * blockIdx.x;
+            int max_thread_num = ((num_delays - 2 * projections_start_ind) - blockDim.x * blockIdx.x > NUM_THREADS_RESPONSE) ? NUM_THREADS_RESPONSE : (num_delays - 2 * projections_start_ind) - blockDim.x * blockIdx.x;
 
             if (threadIdx.x == 0)
             {
@@ -686,7 +694,7 @@ void LISAResponse::get_response(double *y_gw, double *t_data, double *k_in, doub
 #ifdef __CUDACC__
 
     int num_delays_here = (num_delays - 2 * projections_start_ind);
-    int num_blocks = std::ceil((num_delays_here + NUM_THREADS - 1) / NUM_THREADS);
+    int num_blocks = std::ceil((num_delays_here + NUM_THREADS_RESPONSE - 1) / NUM_THREADS_RESPONSE);
 
     // copy self to GPU
     Orbits *orbits_gpu;
@@ -696,7 +704,7 @@ void LISAResponse::get_response(double *y_gw, double *t_data, double *k_in, doub
     dim3 gridDim(num_blocks, 1);
 
     // printf("RUNNING: %d\n", i);
-    response<<<gridDim, NUM_THREADS>>>(y_gw, t_data, k_in, u_in, v_in, dt,
+    response<<<gridDim, NUM_THREADS_RESPONSE>>>(y_gw, t_data, k_in, u_in, v_in, dt,
                                        num_delays,
                                        input_in, num_inputs, order, sampling_frequency, buffer_integer,
                                        A_in, deps, num_A, E_in, projections_start_ind,

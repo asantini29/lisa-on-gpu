@@ -13,14 +13,20 @@ from gpubackendtools.exceptions import *
 @dataclasses.dataclass
 class FastLISAResponseBackendMethods(BackendMethods):
     LISAResponseWrap: object
-    LISAResponseBase: object
+    LISAResponse: object
     OrbitsWrap: object
+    TDIConfigWrap: object
+    TDIConfig: object
+    CubicSplineWrap: object
     
 
 class FastLISAResponseBackend:
     LISAResponseWrap: object
-    LISAResponseBase: object
+    LISAResponse: object
     OrbitsWrap: object
+    TDIConfigWrap: object
+    TDIConfig: object
+    CubicSplineWrap: object
     
     def __init__(self, fastlisaresponse_backend_methods):
 
@@ -31,8 +37,11 @@ class FastLISAResponseBackend:
         # self.get_response_wrap = fastlisaresponse_backend_methods.get_response_wrap
         # self.get_tdi_delays_wrap = fastlisaresponse_backend_methods.get_tdi_delays_wrap
         self.LISAResponseWrap = fastlisaresponse_backend_methods.LISAResponseWrap
-        self.LISAResponseBase = fastlisaresponse_backend_methods.LISAResponseBase
+        self.LISAResponse = fastlisaresponse_backend_methods.LISAResponse
         self.OrbitsWrap = fastlisaresponse_backend_methods.OrbitsWrap
+        self.TDIConfigWrap = fastlisaresponse_backend_methods.TDIConfigWrap
+        self.TDIConfig = fastlisaresponse_backend_methods.TDIConfig
+        self.CubicSplineWrap = fastlisaresponse_backend_methods.CubicSplineWrap
         
 
 class FastLISAResponseCpuBackend(CpuBackend, FastLISAResponseBackend):
@@ -57,8 +66,11 @@ class FastLISAResponseCpuBackend(CpuBackend, FastLISAResponseBackend):
         numpy = FastLISAResponseCpuBackend.check_numpy()
         return FastLISAResponseBackendMethods(
             LISAResponseWrap=fastlisaresponse_backend_cpu.responselisa.LISAResponseWrapCPU,
-            LISAResponseBase=fastlisaresponse_backend_cpu.responselisa.LISAResponseBaseCPU,
+            LISAResponse=fastlisaresponse_backend_cpu.responselisa.LISAResponseCPU,
             OrbitsWrap=fastlisaresponse_backend_cpu.responselisa.OrbitsWrapCPU_responselisa,
+            TDIConfigWrap=fastlisaresponse_backend_cpu.responselisa.TDIConfigWrapCPU,
+            TDIConfig=fastlisaresponse_backend_cpu.responselisa.TDIConfigCPU,
+            CubicSplineWrap=fastlisaresponse_backend_cpu.responselisa.CubicSplineWrapCPU,
             xp=numpy,
         )
 
@@ -92,8 +104,11 @@ class FastLISAResponseCuda11xBackend(Cuda11xBackend, FastLISAResponseBackend):
 
         return FastLISAResponseBackendMethods(
             LISAResponseWrap=fastlisaresponse_backend_cuda11x.responselisa.LISAResponseWrapGPU,
-            LISAResponseBase=fastlisaresponse_backend_cuda11x.responselisa.LISAResponseBaseGPU,
+            LISAResponse=fastlisaresponse_backend_cuda11x.responselisa.LISAResponseGPU,
             OrbitsWrap=fastlisaresponse_backend_cuda11x.responselisa.OrbitsWrapGPU_responselisa,
+            TDIConfigWrap=fastlisaresponse_backend_cuda11x.responselisa.TDIConfigWrapGPU,
+            TDIConfig=fastlisaresponse_backend_cuda11x.responselisa.TDIConfigGPU,
+            CubicSplineWrap=fastlisaresponse_backend_cuda11x.responselisa.CubicSplineWrapGPU,
             xp=cupy,
         )
 
@@ -124,8 +139,11 @@ class FastLISAResponseCuda12xBackend(Cuda12xBackend, FastLISAResponseBackend):
             ) from e
         return FastLISAResponseBackendMethods(
             LISAResponseWrap=fastlisaresponse_backend_cuda12x.responselisa.LISAResponseWrapGPU,
-            LISAResponseBase=fastlisaresponse_backend_cuda12x.responselisa.LISAResponseBaseGPU,
+            LISAResponse=fastlisaresponse_backend_cuda12x.responselisa.LISAResponseGPU,
             OrbitsWrap=fastlisaresponse_backend_cuda12x.responselisa.OrbitsWrapGPU_responselisa,
+            TDIConfigWrap=fastlisaresponse_backend_cuda12x.responselisa.TDIConfigWrapGPU,
+            TDIConfig=fastlisaresponse_backend_cuda12x.responselisa.TDIConfigGPU,
+            CubicSplineWrap=fastlisaresponse_backend_cuda12x.responselisa.CubicSplineWrapGPU,
             xp=cupy,
         )
 

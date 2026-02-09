@@ -14,7 +14,7 @@ from lisatools.detector import EqualArmlengthOrbits, Orbits
 from lisatools.utils.utility import AET
 
 from .utils.parallelbase import FastLISAResponseParallelModule
-
+from .tdiconfig import TDIConfig
 
 # TODO: need to update constants setup
 YRSID_SI = 31558149.763545603
@@ -135,7 +135,7 @@ class pyResponseTDI(FastLISAResponseParallelModule):
         self.half_order = int((order + 1) / 2)
 
         # setup TDI information
-        self.tdi = tdi
+        self.tdi = TDIConfig(tdi, force_backend=force_backend)
         self.tdi_chan = tdi_chan
 
         super().__init__(force_backend=force_backend)
@@ -159,12 +159,18 @@ class pyResponseTDI(FastLISAResponseParallelModule):
 
         # setup spacecraft links indexes
 
+        self.tdi_config = TDIConfig(tdi, force_backend=force_backend)
+        
         # setup TDI info
         self._init_TDI_delays()
 
         # initialize the cpp holders of orbit and other information
+        # self.cpp_response.add_orbit_information(*self.check_add_orbit_args(*self.response_orbits.pycppdetector_args))
+        # self.cpp_response.add_tdi_config(*self.tdi_config.pytdiconfig_args)
+
         self.cpp_orbits = self.backend.OrbitsWrap(*self.response_orbits.pycppdetector_args)
-        self.cpp_response = self.backend.LISAResponseWrap(self.cpp_orbits)
+        self.cpp_tdi_config = self.backend.TDIConfigWrap(*self.tdi_config.pytdiconfig_args)
+        self.cpp_response = self.backend.LISAResponseWrap(self.cpp_orbits, self.cpp_tdi_config)
         
     def check_add_orbit_args(self, *args):
         """Check orbit arguments for adherence to cpp Orbits class.
@@ -313,124 +319,58 @@ class pyResponseTDI(FastLISAResponseParallelModule):
         """Initialize TDI specific information"""
 
         # setup the actual TDI combination
-        if self.tdi in ["1st generation", "2nd generation"]:
-            # tdi 1.0
-            tdi_combinations = [
-                {"link": 13, "links_for_delay": [], "sign": +1},
-                {"link": 31, "links_for_delay": [13], "sign": +1},
-                {"link": 12, "links_for_delay": [13, 31], "sign": +1},
-                {"link": 21, "links_for_delay": [13, 31, 12], "sign": +1},
-                {"link": 12, "links_for_delay": [], "sign": -1},
-                {"link": 21, "links_for_delay": [12], "sign": -1},
-                {"link": 13, "links_for_delay": [12, 21], "sign": -1},
-                {"link": 31, "links_for_delay": [12, 21, 13], "sign": -1},
-            ]
+        # if self.tdi in ["1st generation", "2nd generation"]:
+        #     # tdi 1.0
+        #     tdi_combinations = [
+        #         {"link": 13, "links_for_delay": [], "sign": +1},
+        #         {"link": 31, "links_for_delay": [13], "sign": +1},
+        #         {"link": 12, "links_for_delay": [13, 31], "sign": +1},
+        #         {"link": 21, "links_for_delay": [13, 31, 12], "sign": +1},
+        #         {"link": 12, "links_for_delay": [], "sign": -1},
+        #         {"link": 21, "links_for_delay": [12], "sign": -1},
+        #         {"link": 13, "links_for_delay": [12, 21], "sign": -1},
+        #         {"link": 31, "links_for_delay": [12, 21, 13], "sign": -1},
+        #     ]
 
-            if self.tdi == "2nd generation":
-                # tdi 2.0 is tdi 1.0 + additional terms
-                tdi_combinations += [
-                    {"link": 12, "links_for_delay": [13, 31, 12, 21], "sign": +1},
-                    {"link": 21, "links_for_delay": [13, 31, 12, 21, 12], "sign": +1},
-                    {
-                        "link": 13,
-                        "links_for_delay": [13, 31, 12, 21, 12, 21],
-                        "sign": +1,
-                    },
-                    {
-                        "link": 31,
-                        "links_for_delay": [13, 31, 12, 21, 12, 21, 13],
-                        "sign": +1,
-                    },
-                    {"link": 13, "links_for_delay": [12, 21, 13, 31], "sign": -1},
-                    {"link": 31, "links_for_delay": [12, 21, 13, 31, 13], "sign": -1},
-                    {
-                        "link": 12,
-                        "links_for_delay": [12, 21, 13, 31, 13, 31],
-                        "sign": -1,
-                    },
-                    {
-                        "link": 21,
-                        "links_for_delay": [12, 21, 13, 31, 13, 31, 12],
-                        "sign": -1,
-                    },
-                ]
+        #     if self.tdi == "2nd generation":
+        #         # tdi 2.0 is tdi 1.0 + additional terms
+        #         tdi_combinations += [
+        #             {"link": 12, "links_for_delay": [13, 31, 12, 21], "sign": +1},
+        #             {"link": 21, "links_for_delay": [13, 31, 12, 21, 12], "sign": +1},
+        #             {
+        #                 "link": 13,
+        #                 "links_for_delay": [13, 31, 12, 21, 12, 21],
+        #                 "sign": +1,
+        #             },
+        #             {
+        #                 "link": 31,
+        #                 "links_for_delay": [13, 31, 12, 21, 12, 21, 13],
+        #                 "sign": +1,
+        #             },
+        #             {"link": 13, "links_for_delay": [12, 21, 13, 31], "sign": -1},
+        #             {"link": 31, "links_for_delay": [12, 21, 13, 31, 13], "sign": -1},
+        #             {
+        #                 "link": 12,
+        #                 "links_for_delay": [12, 21, 13, 31, 13, 31],
+        #                 "sign": -1,
+        #             },
+        #             {
+        #                 "link": 21,
+        #                 "links_for_delay": [12, 21, 13, 31, 13, 31, 12],
+        #                 "sign": -1,
+        #             },
+        #         ]
 
-        elif isinstance(self.tdi, list):
-            tdi_combinations = self.tdi
+        # elif isinstance(self.tdi, list):
+        #     tdi_combinations = self.tdi
 
-        else:
-            raise ValueError(
-                "tdi kwarg should be '1st generation', '2nd generation', or a list with a specific tdi combination."
-            )
-        self.tdi_combinations = tdi_combinations
+        # else:
+        #     raise ValueError(
+        #         "tdi kwarg should be '1st generation', '2nd generation', or a list with a specific tdi combination."
+        #     )
+        # self.tdi_combinations = tdi_combinations
 
-    @property
-    def tdi_combinations(self) -> List:
-        """TDI Combination setup"""
-        return self._tdi_combinations
-
-    @tdi_combinations.setter
-    def tdi_combinations(self, tdi_combinations: List) -> None:
-        """Set TDI combinations and fill out setup."""
-        tdi_base_links = []
-        tdi_link_combinations = []
-        tdi_signs = []
-        tdi_operation_index = []
-        channels = []
-
-        tdi_index = 0
-        for permutation_number in range(3):
-            for tmp in tdi_combinations:
-                tdi_base_links.append(
-                    self._cyclic_permutation(tmp["link"], permutation_number)
-                )
-                tdi_signs.append(float(tmp["sign"]))
-                channels.append(permutation_number)
-                if len(tmp["links_for_delay"]) == 0:
-                    tdi_link_combinations.append(-11)
-                    tdi_operation_index.append(tdi_index)
-
-                else:
-                    for link_delay in tmp["links_for_delay"]:
-
-                        tdi_link_combinations.append(
-                            self._cyclic_permutation(link_delay, permutation_number)
-                        )
-                        tdi_operation_index.append(tdi_index)
-
-                tdi_index += 1
-
-        self.tdi_operation_index = self.xp.asarray(tdi_operation_index).astype(
-            self.xp.int32
-        )
-        self.tdi_base_links = self.xp.asarray(tdi_base_links).astype(self.xp.int32)
-        self.tdi_link_combinations = self.xp.asarray(tdi_link_combinations).astype(
-            self.xp.int32
-        )
-        self.tdi_signs = self.xp.asarray(tdi_signs).astype(self.xp.float64)
-        self.channels = self.xp.asarray(channels).astype(self.xp.int32)
-        assert len(self.tdi_link_combinations) == len(self.tdi_operation_index)
-
-        assert (
-            len(self.tdi_base_links)
-            == len(np.unique(self.tdi_operation_index))
-            == len(self.tdi_signs)
-            == len(self.channels)
-        )
-
-    def _cyclic_permutation(self, link, permutation):
-        """permute indexes by cyclic permutation"""
-        link_str = str(link)
-
-        out = ""
-        for i in range(2):
-            sc = int(link_str[i])
-            temp = sc + permutation
-            if temp > 3:
-                temp = temp % 3
-            out += str(temp)
-
-        return int(out)
+        assert isinstance(self.tdi, TDIConfig)
 
     @property
     def y_gw(self):
@@ -615,16 +555,15 @@ class pyResponseTDI(FastLISAResponseParallelModule):
         self.delayed_links_flat = self.delayed_links_flat.flatten()
 
         t_data = t0 + self.xp.arange(self.y_gw_length) * self.dt
-
-        num_units = int(self.tdi_operation_index.max() + 1)
+        num_units = int(self.tdi.tdi_operation_index.max() + 1)
 
         assert np.all(
-            (np.diff(self.tdi_operation_index) == 0)
-            | (np.diff(self.tdi_operation_index) == 1)
+            (np.diff(self.tdi.tdi_operation_index) == 0)
+            | (np.diff(self.tdi.tdi_operation_index) == 1)
         )
 
         _, unit_starts, unit_lengths = np.unique(
-            self.tdi_operation_index,
+            self.tdi.tdi_operation_index,
             return_index=True,
             return_counts=True,
         )
@@ -638,14 +577,6 @@ class pyResponseTDI(FastLISAResponseParallelModule):
             self.y_gw_length,
             self.num_pts,
             t_data,
-            unit_starts,
-            unit_lengths,
-            self.tdi_base_links,
-            self.tdi_link_combinations,
-            self.tdi_signs,
-            self.channels,
-            num_units,
-            3,  # num channels
             self.order,
             self.sampling_frequency,
             self.buffer_integer,
