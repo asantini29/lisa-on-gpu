@@ -747,11 +747,11 @@ class ResponseWrapper(FastLISAResponseParallelModule):
 
         assert isinstance(orbits, Orbits)
 
-        if Tobs * YRSID_SI > (orbits.ltt_t.max() - orbits.ltt_t.min()):
+        if Tobs * YRSID_SI > (orbits.sc_t.max() - orbits.sc_t.min()):
             warnings.warn(
-                f"Tobs is larger than available orbital information time array. Reducing Tobs to {orbits.ltt_t.max() - orbits.ltt_t.min()}"
+                f"Tobs is larger than available orbital information time array. Reducing Tobs to {orbits.sc_t.max() - orbits.sc_t.min()}"
             )
-            Tobs = (orbits.ltt_t.max() - orbits.ltt_t.min()) / YRSID_SI
+            Tobs = (orbits.sc_t.max() - orbits.sc_t.min()) / YRSID_SI
         if n_overide is not None:
             if not isinstance(n_overide, int):
                 raise ValueError("n_overide must be an integer if not None.")
