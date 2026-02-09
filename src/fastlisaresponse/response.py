@@ -475,6 +475,7 @@ class pyResponseTDI(FastLISAResponseParallelModule):
         # get necessary buffer for TDI
         self.check_tdi_buffer = int(100.0 * self.sampling_frequency) + 4 * self.order
 
+        self.t0_projection = t0
         from copy import deepcopy
 
         tmp_orbits = deepcopy(self.response_orbits.x_base)
@@ -563,7 +564,7 @@ class pyResponseTDI(FastLISAResponseParallelModule):
         """Return links as an array"""
         return self.delayed_links_flat.reshape(3, -1)
 
-    def get_tdi_delays(self, t0=0., y_gw=None):
+    def get_tdi_delays(self, t0=None, y_gw=None):
         """Get TDI combinations from projections.
 
         This functions generates the TDI combinations from the projections
@@ -571,12 +572,14 @@ class pyResponseTDI(FastLISAResponseParallelModule):
         on what was input for ``tdi_chan`` into ``__init__``.
 
         Args:
-            t0 (double): Initial time at which to start the waveform. 
+            t0 (double, optional): Initial time at which to start the waveform. 
+                Should only be provided if not running projections. Otherwise (and if None), it will
+                be the same as the projection used. (Default: ``None``)
             y_gw (xp.ndarray, optional): Projections along the arms. This should be
                 a 2D ``numpy`` or ``cupy`` array with shape: ``(nlinks, num_pts)``.
                 The links must be entered in the proper order in the code.
                 The link order is given in the orbits class: ``orbits.LINKS``. 
-                (Default: None)
+                (Default: ``None``)
 
         Returns:
             tuple: (X,Y,Z) or (A,E,T) or (A,E)
@@ -590,6 +593,14 @@ class pyResponseTDI(FastLISAResponseParallelModule):
             (3, self.num_pts), dtype=self.xp.float64
         )
 
+        if t0 is None:
+            t0 = self.t0_projection
+
+        else:
+            if self.t0_projection is not None:
+                if self.t0_projection != t0:
+                    raise ValueError("If running projections with a t0 value, that t0 value needs to be the same for TDI. If you want to force otherwise, need to run 'del class.t0_projections' before TDI computation.")
+        
         # y_gw entered directly
         if y_gw is not None:
             assert y_gw.shape == (len(self.link_space_craft_0_in), self.num_pts)
@@ -686,6 +697,7 @@ class ResponseWrapper(FastLISAResponseParallelModule):
             with the :code:`*args` formalism producing a list. :code:`index_beta`
             tells the class the index of the ecliptic latitude (or ecliptic polar angle)
             within this list of parameters.
+        t0 (double, optional): Initial time at which to start the waveform. (Default: 0.0)
         t_buffer (double, optional): Start of returned waveform in seconds (with respect to the start of the observation) leaving ample time for garbage at
             the beginning of the waveform. It also removed the same amount from the end. (Default: 10000.0)
         flip_hx (bool, optional): If True, :code:`waveform_gen` produces :math:`h_+ - ih_x`.
@@ -722,6 +734,7 @@ class ResponseWrapper(FastLISAResponseParallelModule):
         dt,
         index_lambda,
         index_beta,
+        t0=0.0, 
         t_buffer=10000.0,
         flip_hx=False,
         remove_sky_coords=False,
@@ -738,6 +751,7 @@ class ResponseWrapper(FastLISAResponseParallelModule):
         self.index_lambda = index_lambda
         self.index_beta = index_beta
         self.dt = dt
+        self.t0 = t0
         self.t_buffer = t_buffer
         self.sampling_frequency = 1.0 / dt
         super().__init__(force_backend=force_backend)
@@ -827,11 +841,8 @@ class ResponseWrapper(FastLISAResponseParallelModule):
         if self.flip_hx:
             h = h.real - 1j * h.imag
 
-        # get t0 from kwargs if present
-        t0 = kwargs.get("t0", 0.0)
-
-        self.response_model.get_projections(h, lam, beta, t0, t_buffer=self.t_buffer)
-        tdi_out = self.response_model.get_tdi_delays(t0)
+        self.response_model.get_projections(h, lam, beta, t0=self.t0, t_buffer=self.t_buffer)
+        tdi_out = self.response_model.get_tdi_delays()  # will take care of t0 automatically to match projections
 
         out = list(tdi_out)
         if self.remove_garbage is True:  # bool
