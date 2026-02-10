@@ -1274,7 +1274,7 @@ void LISATDIonTheFly::get_hp_hc(double *hp, double *hc, double t, double *params
     *hp = hSp * cos2psi - hSc * sin2psi;
     *hc = hSp * sin2psi + hSc * cos2psi;
     // printf("FLYIN: %.12e %.12e %.12e %.12e\n", amp, phase, inc, psi);
-            
+
 
 }
 

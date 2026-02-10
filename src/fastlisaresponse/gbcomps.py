@@ -73,6 +73,7 @@ class GBWDMComputations(FastLISAResponseParallelModule):
         self._wdm_lookup_table = wdm_lookup_table
         self.c_nm_all = wdm_lookup_table.table.real.copy()
         self.s_nm_all = wdm_lookup_table.table.imag.copy()
+        differential_component = wdm_lookup_table.differential_component if hasattr(wdm_lookup_table, "differential_component") else 1.0
         self.cpp_wdm_lookup_table = self.backend.WaveletLookupTableWrap(
             self.c_nm_all, 
             self.s_nm_all, 
@@ -86,7 +87,8 @@ class GBWDMComputations(FastLISAResponseParallelModule):
             wdm_lookup_table.dt,
             wdm_lookup_table.NF,
             wdm_lookup_table.NT,
-            wdm_lookup_table.num_channel
+            wdm_lookup_table.num_channel,
+            differential_component,
         )
 
     @classmethod
@@ -232,6 +234,7 @@ class GBSTFTComputations(FastLISAResponseParallelModule):
         """
         self._stft_lookup_table = stft_lookup_table
         self.window_dft = stft_lookup_table.window_dft.copy()
+        differential_component = stft_lookup_table.differential_component if hasattr(stft_lookup_table, "differential_component") else 1.0
         self.cpp_stft_lookup_table = self.backend.STFTLookupTableWrap(
             self.window_dft,
             stft_lookup_table.num_delta_f,
@@ -243,6 +246,7 @@ class GBSTFTComputations(FastLISAResponseParallelModule):
             stft_lookup_table.NF,
             stft_lookup_table.NT,
             stft_lookup_table.num_channel,
+            differential_component,
         )
 
     @classmethod

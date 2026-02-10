@@ -138,13 +138,13 @@ class WaveletLookupTableWrap : public ReturnPointerBase {
     // double min_f;
     // double min_fdot;
 
-    WaveletLookupTableWrap(array_type<double>c_nm_all_, array_type<double>s_nm_all_, int num_f_, int num_fdot_, double df_interp_, double dfdot_interp_, double min_f_, double min_fdot_, double df_, double dt_, int num_m_, int num_n_, int num_channel_)
+    WaveletLookupTableWrap(array_type<double>c_nm_all_, array_type<double>s_nm_all_, int num_f_, int num_fdot_, double df_interp_, double dfdot_interp_, double min_f_, double min_fdot_, double df_, double dt_, int num_m_, int num_n_, int num_channel_, double differential_component_ = 1.0)
     {
         
         wdm_lookup = new WaveletLookupTable(
             return_pointer_and_check_length(c_nm_all_, "c_nm_all", num_f_ * num_fdot_, 1),
             return_pointer_and_check_length(s_nm_all_, "s_nm_all", num_f_ * num_fdot_, 1),
-            num_f_, num_fdot_, df_interp_, dfdot_interp_, min_f_, min_fdot_, df_, dt_, num_m_, num_n_, num_channel_
+            num_f_, num_fdot_, df_interp_, dfdot_interp_, min_f_, min_fdot_, df_, dt_, num_m_, num_n_, num_channel_, differential_component_
         );
     };
     ~WaveletLookupTableWrap(){
@@ -158,13 +158,13 @@ class WDMDomainWrap : public ReturnPointerBase {
   public:
     WDMDomain *wdm;
 
-    WDMDomainWrap(array_type<double>wdm_data_, array_type<double>wdm_noise_, double df_, double dt_, int num_m_, int num_n_, int num_channel_, int num_data_, int num_noise_)
+    WDMDomainWrap(array_type<double>wdm_data_, array_type<double>wdm_noise_, double df_, double dt_, int num_m_, int num_n_, int num_channel_, int num_data_, int num_noise_, double differential_component_ = 1.0)
     {
         // TODO: adjust noise length check to TDI setups
         wdm = new WDMDomain(
             return_pointer_and_check_length(wdm_data_, "wdm_data", num_n_ * num_m_ * num_channel_ * num_data_, 1),
             return_pointer(wdm_noise_, "wdm_noise"),
-            df_, dt_, num_m_, num_n_, num_channel_, num_data_, num_noise_
+            df_, dt_, num_m_, num_n_, num_channel_, num_data_, num_noise_, differential_component_
         );
     };
     ~WDMDomainWrap(){
@@ -179,12 +179,12 @@ class STFTLookupTableWrap : public ReturnPointerBase {
     STFTLookupTable *stft_lookup;
 
     STFTLookupTableWrap(array_type<std::complex<double>>window_dft_, int num_delta_f_, double d_delta_f_, double min_delta_f_, int window_half_width_,
-        double df_, double dt_, int num_m_, int num_n_, int num_channel_)
+        double df_, double dt_, int num_m_, int num_n_, int num_channel_, double differential_component_ = 1.0)
     {
         stft_lookup = new STFTLookupTable(
             (cmplx*)return_pointer_and_check_length(window_dft_, "window_dft", num_delta_f_, 1),
             num_delta_f_, d_delta_f_, min_delta_f_, window_half_width_,
-            df_, dt_, num_m_, num_n_, num_channel_
+            df_, dt_, num_m_, num_n_, num_channel_, differential_component_
         );
     };
     ~STFTLookupTableWrap(){
@@ -197,12 +197,12 @@ class STFTDomainWrap : public ReturnPointerBase {
   public:
     STFTDomain *stft;
 
-    STFTDomainWrap(array_type<std::complex<double>>stft_data_, array_type<std::complex<double>>stft_noise_, double df_, double dt_, int num_m_, int num_n_, int num_channel_, int num_data_, int num_noise_)
+    STFTDomainWrap(array_type<std::complex<double>>stft_data_, array_type<std::complex<double>>stft_noise_, double df_, double dt_, int num_m_, int num_n_, int num_channel_, int num_data_, int num_noise_, double differential_component_ = 1.0)
     {
         stft = new STFTDomain(
             (cmplx*)return_pointer_and_check_length(stft_data_, "stft_data", num_n_ * num_m_ * num_channel_ * num_data_, 1),
             (cmplx*)return_pointer(stft_noise_, "stft_noise"),
-            df_, dt_, num_m_, num_n_, num_channel_, num_data_, num_noise_
+            df_, dt_, num_m_, num_n_, num_channel_, num_data_, num_noise_, differential_component_
         );
     };
     ~STFTDomainWrap(){

@@ -90,6 +90,7 @@ void GBComputationGroupWrap::gb_wdm_get_ll(array_type<double>d_h_out, array_type
 
 void GBComputationGroupWrap::gb_stft_get_ll(array_type<double>d_h_out, array_type<double>h_h_out, OrbitsWrap_responselisa* orbits_wrap, TDIConfigWrap *tdi_config_wrap, STFTLookupTableWrap* stft_lookup_wrap, STFTDomainWrap* stft_wrap, array_type<double>params_all, array_type<int>data_index_all, array_type<int>noise_index_all, int num_bin, int nparams, double T, int tdi_type)
 {
+    // from the parent class
     gb_stft_get_ll_wrap(
         return_pointer_and_check_length(d_h_out, "d_h_out", num_bin, 1), 
         return_pointer_and_check_length(h_h_out, "h_h_out", num_bin, 1), 
@@ -234,8 +235,8 @@ void tdionthefly_part(py::module &m) {
 #endif 
 
     // Bind the constructor
-    .def(py::init<array_type<double>,array_type<double>,int,int,double,double,double,double, double, double, int, int, int>(), 
-         py::arg("c_nm_all"), py::arg("s_nm_all"), py::arg("num_f"), py::arg("num_fdot"), py::arg("df_interp"), py::arg("dfdot_interp"), py::arg("min_f"), py::arg("min_fdot"), py::arg("df"), py::arg("dt"), py::arg("num_m"), py::arg("num_n"), py::arg("num_channel"))
+    .def(py::init<array_type<double>,array_type<double>,int,int,double,double,double,double, double, double, int, int, int, double>(), 
+         py::arg("c_nm_all"), py::arg("s_nm_all"), py::arg("num_f"), py::arg("num_fdot"), py::arg("df_interp"), py::arg("dfdot_interp"), py::arg("min_f"), py::arg("min_fdot"), py::arg("df"), py::arg("dt"), py::arg("num_m"), py::arg("num_n"), py::arg("num_channel"), py::arg("differential_component"))
     // Bind member functions
     
     // You can also expose public data members directly using def_readwrite
@@ -249,8 +250,8 @@ void tdionthefly_part(py::module &m) {
     py::class_<WaveletLookupTable>(m, "WaveletLookupTableCPU")
 #endif
     // Bind the constructor
-    .def(py::init<double*,double*,int,int,double,double,double,double, double, double, int, int, int>(), 
-         py::arg("c_nm_all"), py::arg("s_nm_all"), py::arg("num_f"), py::arg("num_fdot"), py::arg("df_interp"), py::arg("dfdot_interp"), py::arg("min_f"), py::arg("min_fdot"), py::arg("df"), py::arg("dt"), py::arg("num_m"), py::arg("num_n"), py::arg("num_channel"))
+    .def(py::init<double*,double*,int,int,double,double,double,double, double, double, int, int, int, double>(), 
+         py::arg("c_nm_all"), py::arg("s_nm_all"), py::arg("num_f"), py::arg("num_fdot"), py::arg("df_interp"), py::arg("dfdot_interp"), py::arg("min_f"), py::arg("min_fdot"), py::arg("df"), py::arg("dt"), py::arg("num_m"), py::arg("num_n"), py::arg("num_channel"), py::arg("differential_component"))
     ;
 
 #if defined(__CUDA_COMPILATION__) || defined(__CUDACC__)
@@ -260,8 +261,8 @@ void tdionthefly_part(py::module &m) {
 #endif 
 
     // Bind the constructor
-    .def(py::init<array_type<double>,array_type<double>, double, double, int, int, int, int, int>(), 
-         py::arg("wdm_data"), py::arg("wdm_noise"), py::arg("df"), py::arg("dt"), py::arg("num_m"), py::arg("num_n"), py::arg("num_channel"), py::arg("num_data"), py::arg("num_noise"))
+    .def(py::init<array_type<double>,array_type<double>, double, double, int, int, int, int, int, double>(), 
+         py::arg("wdm_data"), py::arg("wdm_noise"), py::arg("df"), py::arg("dt"), py::arg("num_m"), py::arg("num_n"), py::arg("num_channel"), py::arg("num_data"), py::arg("num_noise"), py::arg("differential_component"))
     // Bind member functions
     
     // You can also expose public data members directly using def_readwrite
@@ -276,11 +277,9 @@ void tdionthefly_part(py::module &m) {
 #endif
 
     // Bind the constructor
-    .def(py::init<double*,double*, double, double, int, int, int, int, int>(), 
-         py::arg("wdm_data"), py::arg("wdm_noise"), py::arg("df"), py::arg("dt"), py::arg("num_m"), py::arg("num_n"), py::arg("num_channel"), py::arg("num_data"), py::arg("num_noise"))
+    .def(py::init<double*,double*, double, double, int, int, int, int, int, double>(), 
+         py::arg("wdm_data"), py::arg("wdm_noise"), py::arg("df"), py::arg("dt"), py::arg("num_m"), py::arg("num_n"), py::arg("num_channel"), py::arg("num_data"), py::arg("num_noise"), py::arg("differential_component"))
     ;
-
-// --- STFTLookupTable bindings ---
 
 #if defined(__CUDA_COMPILATION__) || defined(__CUDACC__)
     py::class_<STFTLookupTableWrap>(m, "STFTLookupTableWrapGPU")
@@ -288,13 +287,24 @@ void tdionthefly_part(py::module &m) {
     py::class_<STFTLookupTableWrap>(m, "STFTLookupTableWrapCPU")
 #endif 
 
-    .def(py::init<array_type<std::complex<double>>,int,double,double,int, double, double, int, int, int>(), 
-         py::arg("window_dft"), py::arg("num_delta_f"), py::arg("d_delta_f"), py::arg("min_delta_f"), py::arg("window_half_width"),
-         py::arg("df"), py::arg("dt"), py::arg("num_m"), py::arg("num_n"), py::arg("num_channel"))
+    // Bind the constructor
+    .def(py::init<array_type<std::complex<double>>,int,double,double,int,double,double,int,int,int,double>(), 
+         py::arg("window_dft"), py::arg("num_delta_f"), py::arg("d_delta_f"), py::arg("min_delta_f"), py::arg("window_half_width"), py::arg("df"), py::arg("dt"), py::arg("num_m"), py::arg("num_n"), py::arg("num_channel"), py::arg("differential_component"))
+    // Bind member functions
+    
+    // You can also expose public data members directly using def_readwrite
     .def_readwrite("stft_lookup", &STFTLookupTableWrap::stft_lookup)
     ;
 
-// --- STFTDomain bindings ---
+#if defined(__CUDA_COMPILATION__) || defined(__CUDACC__)
+    py::class_<STFTLookupTable>(m, "STFTLookupTableGPU")
+#else
+    py::class_<STFTLookupTable>(m, "STFTLookupTableCPU")
+#endif
+    // Bind the constructor
+    .def(py::init<cmplx*,int,double,double,int,double,double,int,int,int,double>(), 
+         py::arg("window_dft"), py::arg("num_delta_f"), py::arg("d_delta_f"), py::arg("min_delta_f"), py::arg("window_half_width"), py::arg("df"), py::arg("dt"), py::arg("num_m"), py::arg("num_n"), py::arg("num_channel"), py::arg("differential_component"))
+    ;
 
 #if defined(__CUDA_COMPILATION__) || defined(__CUDACC__)
     py::class_<STFTDomainWrap>(m, "STFTDomainWrapGPU")
@@ -302,9 +312,24 @@ void tdionthefly_part(py::module &m) {
     py::class_<STFTDomainWrap>(m, "STFTDomainWrapCPU")
 #endif 
 
-    .def(py::init<array_type<std::complex<double>>,array_type<std::complex<double>>, double, double, int, int, int, int, int>(), 
-         py::arg("stft_data"), py::arg("stft_noise"), py::arg("df"), py::arg("dt"), py::arg("num_m"), py::arg("num_n"), py::arg("num_channel"), py::arg("num_data"), py::arg("num_noise"))
+    // Bind the constructor
+    .def(py::init<array_type<std::complex<double>>,array_type<std::complex<double>>, double, double, int, int, int, int, int, double>(), 
+         py::arg("stft_data"), py::arg("stft_noise"), py::arg("df"), py::arg("dt"), py::arg("num_m"), py::arg("num_n"), py::arg("num_channel"), py::arg("num_data"), py::arg("num_noise"), py::arg("differential_component"))
+    // Bind member functions
+    
+    // You can also expose public data members directly using def_readwrite
     .def_readwrite("stft", &STFTDomainWrap::stft)
+    ;
+
+#if defined(__CUDA_COMPILATION__) || defined(__CUDACC__)
+    py::class_<STFTDomain>(m, "STFTDomainGPU")
+#else
+    py::class_<STFTDomain>(m, "STFTDomainCPU")
+#endif
+
+    // Bind the constructor
+    .def(py::init<cmplx*,cmplx*, double, double, int, int, int, int, int, double>(), 
+         py::arg("stft_data"), py::arg("stft_noise"), py::arg("df"), py::arg("dt"), py::arg("num_m"), py::arg("num_n"), py::arg("num_channel"), py::arg("num_data"), py::arg("num_noise"), py::arg("differential_component"))
     ;
 
     #if defined(__CUDA_COMPILATION__) || defined(__CUDACC__)
@@ -313,8 +338,8 @@ void tdionthefly_part(py::module &m) {
     py::class_<GBComputationGroupWrap>(m, "GBComputationGroupWrapCPU")
 #endif
     .def(py::init<>())
-    .def("gb_wdm_get_ll", &GBComputationGroupWrap::gb_wdm_get_ll, "Log-likelihood computation (WDM basis).")
-    .def("gb_stft_get_ll", &GBComputationGroupWrap::gb_stft_get_ll, "Log-likelihood computation (STFT basis).")
+    .def("gb_wdm_get_ll", &GBComputationGroupWrap::gb_wdm_get_ll, "Log-likelihood computation (WDM).")
+    .def("gb_stft_get_ll", &GBComputationGroupWrap::gb_stft_get_ll, "Log-likelihood computation (STFT).")
     
     ;
 }

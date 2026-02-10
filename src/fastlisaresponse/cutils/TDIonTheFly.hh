@@ -244,15 +244,17 @@ class TFSettings{
     int num_channel;
     double df;
     double dt;
+    double differential_component;
 
     // TODO: add to this?
     CUDA_CALLABLE_MEMBER
-    TFSettings(double df_, double dt_, int num_m_, int num_n_, int num_channel_){
+    TFSettings(double df_, double dt_, int num_m_, int num_n_, int num_channel_, double differential_component_){
         num_m = num_m_;
         num_n = num_n_;
         num_channel = num_channel_;
         df = df_;
         dt = dt_;
+        differential_component = differential_component_;
     };
 };
 
@@ -279,8 +281,8 @@ class TFDomain : public TFSettings{
     int num_noise;
 
     CUDA_CALLABLE_MEMBER
-    TFDomain(CoeffT *tf_data_, CoeffT *tf_noise_, double df_, double dt_, int num_m_, int num_n_, int num_channel_, int num_data_, int num_noise_):
-    TFSettings(df_, dt_, num_m_, num_n_, num_channel_)
+    TFDomain(CoeffT *tf_data_, CoeffT *tf_noise_, double df_, double dt_, int num_m_, int num_n_, int num_channel_, int num_data_, int num_noise_, double differential_component_):
+    TFSettings(df_, dt_, num_m_, num_n_, num_channel_, differential_component_)
     {
         tf_data = tf_data_;
         tf_noise = tf_noise_;
@@ -349,8 +351,8 @@ class TFDomain : public TFSettings{
     {
         CoeffT data_nm = get_pixel_data_value(m, n, channel, data_index);
         CoeffT noise_nm = get_pixel_noise_value(m, n, channel, noise_index);
-        double val_d_h = ip_dh(data_nm, template_nm, noise_nm);
-        double val_h_h = ip_hh(template_nm, template_nm, noise_nm);
+        double val_d_h = ip_dh(data_nm, template_nm, noise_nm, differential_component);
+        double val_h_h = ip_hh(template_nm, template_nm, noise_nm, differential_component);
         
         *d_h = val_d_h;
         *h_h = val_h_h;
@@ -362,8 +364,8 @@ class TFDomain : public TFSettings{
         CoeffT data_nm_i = get_pixel_data_value(m, n, channel_i, data_index);
         CoeffT noise_nm_ij = get_pixel_noise_value_cross_channel(m, n, channel_i, channel_j, noise_index);
         
-        double val_d_h = ip_dh(data_nm_i, template_nm_j, noise_nm_ij);
-        double val_h_h = ip_hh(template_nm_i, template_nm_j, noise_nm_ij);
+        double val_d_h = ip_dh(data_nm_i, template_nm_j, noise_nm_ij, differential_component);
+        double val_h_h = ip_hh(template_nm_i, template_nm_j, noise_nm_ij, differential_component);
         *d_h = val_d_h;
         *h_h = val_h_h;
     }
@@ -497,7 +499,7 @@ class WaveletLookupTable : public TFSettings{
 
     CUDA_CALLABLE_MEMBER
     WaveletLookupTable(double *c_nm_all_, double *s_nm_all_, int num_f_, int num_fdot_, double df_interp_, double dfdot_interp_, double min_f_scaled_, double min_fdot_, 
-        double df_, double dt_, int num_m_, int num_n_, int num_channel_): TFSettings(df_, dt_, num_m_, num_n_, num_channel_) {
+        double df_, double dt_, int num_m_, int num_n_, int num_channel_, double differential_component_): TFSettings(df_, dt_, num_m_, num_n_, num_channel_, differential_component_) {
         // n * num_m + m 
         c_nm_all = c_nm_all_;
         s_nm_all = s_nm_all_;
@@ -540,7 +542,7 @@ class STFTLookupTable : public TFSettings{
 
     CUDA_CALLABLE_MEMBER
     STFTLookupTable(cmplx *window_dft_, int num_delta_f_, double d_delta_f_, double min_delta_f_, int window_half_width_,
-        double df_, double dt_, int num_m_, int num_n_, int num_channel_): TFSettings(df_, dt_, num_m_, num_n_, num_channel_) {
+        double df_, double dt_, int num_m_, int num_n_, int num_channel_, double differential_component_): TFSettings(df_, dt_, num_m_, num_n_, num_channel_, differential_component_) {
         window_dft = window_dft_;
         num_delta_f = num_delta_f_;
         d_delta_f = d_delta_f_;
