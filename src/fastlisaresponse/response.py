@@ -17,7 +17,8 @@ from .utils.parallelbase import FastLISAResponseParallelModule
 from .tdiconfig import TDIConfig
 
 # TODO: need to update constants setup
-YRSID_SI = 31558149.763545603
+#YRSID_SI = 31558149.763545603
+from lisaconstants import ASTRONOMICAL_YEAR as YRSID_SI
 
 
 def get_factorial(n):

@@ -17,6 +17,8 @@ double C_SI = 299792458.;
 #define NUM_THREADS_HERE 1
 #endif
 
+#define NLINKS 6
+
 CUDA_DEVICE
 LISATDIonTheFly::~LISATDIonTheFly()
 {
@@ -367,85 +369,10 @@ LISATDIonTheFly::~LISATDIonTheFly()
 // }
 
 
-CUDA_DEVICE
-int WDMDomain::get_pixel_index(int m, int n, int channel, int data_index)
-{
-    if (data_index >= num_data)
-    {
-#ifdef __CUDACC__  
-#else
-        throw std::invalid_argument("data_index is larger than available data instances.");
-#endif
-    }
-    return ((data_index * num_channel + channel) * num_m + m) * num_n + n;
-}
-
-CUDA_DEVICE
-int WDMDomain::get_pixel_index_noise(int m, int n, int channel, int noise_index)
-{
-    if (noise_index >= num_noise)
-    {
-#ifdef __CUDACC__  
-#else
-        throw std::invalid_argument("noise_index is larger than available noise instances.");
-#endif
-    }
-    return ((noise_index * num_channel + channel) * num_m + m) * num_n + n;
-}
-
-CUDA_DEVICE
-int WDMDomain::get_pixel_index_noise_cross_channel(int m, int n, int channel_i, int channel_j, int noise_index)
-{
-    int out = (((noise_index * num_channel + channel_i) * num_channel + channel_j) * num_m + m) * num_n + n;;
-    return (((noise_index * num_channel + channel_i) * num_channel + channel_j) * num_m + m) * num_n + n;
-}
-
-CUDA_DEVICE
-double WDMDomain::get_pixel_data_value(int m, int n, int channel,  int data_index)
-{
-    return wdm_data[get_pixel_index(m, n, channel, data_index)];
-}
-
-CUDA_DEVICE
-double WDMDomain::get_pixel_noise_value(int m, int n, int channel, int noise_index)
-{
-    return wdm_noise[get_pixel_index_noise(m, n, channel, noise_index)];
-}
-
-CUDA_DEVICE
-double WDMDomain::get_pixel_noise_value_cross_channel(int m, int n, int channel_i, int channel_j, int noise_index)
-{
-    return wdm_noise[get_pixel_index_noise_cross_channel(m, n, channel_i, channel_j, noise_index)];
-}
-
-CUDA_DEVICE
-void WDMDomain::get_inner_product_value(double *d_h, double *h_h, double wdm_template_nm, int m, int n, int channel, int data_index, int noise_index)
-{
-    double wdm_data_nm = get_pixel_data_value(m, n, channel, data_index);
-    double wdm_noise_nm = get_pixel_noise_value(m, n, channel, noise_index);
-    double val_d_h = wdm_data_nm * wdm_template_nm * wdm_noise_nm;
-    double val_h_h = wdm_template_nm * wdm_template_nm * wdm_noise_nm;
-    
-    *d_h = val_d_h;
-    *h_h = val_h_h;
-}
-
-CUDA_DEVICE
-void WDMDomain::get_inner_product_value_cross_channel(double *d_h, double *h_h, double wdm_template_nm_i, double wdm_template_nm_j, int m, int n, int channel_i, int channel_j, int data_index, int noise_index)
-{
-    // assume data is channel_i, template is channel_j
-    // printf("CHECK14 %d %d %d %d\n", n, m, channel_i, channel_j);
-    
-    double wdm_data_nm_i = get_pixel_data_value(m, n, channel_i, data_index);
-    // printf("CHECK15 %d %d %d %d\n", n, m, channel_i, channel_j);
-    double wdm_noise_nm_ij = get_pixel_noise_value_cross_channel(m, n, channel_i, channel_j, noise_index);
-    // printf("CHECK16 %d %d %d %d %e %e %e\n", n, m, channel_i, channel_j, wdm_data_nm_i, wdm_template_nm_j, wdm_noise_nm_ij);
-    
-    double val_d_h = wdm_data_nm_i * wdm_template_nm_j * wdm_noise_nm_ij;
-    double val_h_h = wdm_template_nm_i * wdm_template_nm_j * wdm_noise_nm_ij;
-    *d_h = val_d_h;
-    *h_h = val_h_h;
-}
+// ============================================================================
+// WDMDomain / STFTDomain method bodies are now inline in TFDomain<CoeffT>
+// in TDIonTheFly.hh — nothing to implement here for those.
+// ============================================================================
 
 CUDA_DEVICE
 double WaveletLookupTable::linear_interp(double f_scaled, double fdot, double *z_vals)
@@ -491,7 +418,7 @@ double WaveletLookupTable::linear_interp(double f_scaled, double fdot, double *z
 }
 
 CUDA_DEVICE
-double WaveletLookupTable::get_w_mn_lookup(cmplx tdi_channel_val, double f, double fdot, int layer_m)
+double WaveletLookupTable::get_coeff(cmplx tdi_channel_val, double f, double fdot, int layer_m)
 {
     double f_scaled = f - layer_m * df;
     printf("CHECK10 %e %d %d %e\n", f_scaled, layer_m, int(f / df_interp), f); 
@@ -502,133 +429,40 @@ double WaveletLookupTable::get_w_mn_lookup(cmplx tdi_channel_val, double f, doub
     return w_mn;
 }
 
+// add_ip_contrib and add_ip_swap_contrib are now inline in TFDomain<CoeffT>
+
+// ============================================================================
+// STFTLookupTable method implementations
+// ============================================================================
+
 CUDA_DEVICE
-void WDMDomain::add_ip_contrib(double *d_h_tmp, double *h_h_tmp, double *w_mn, int layer_m, int n, int data_index, int noise_index, int tdi_type)
+cmplx STFTLookupTable::interp_window_dft(double delta_f)
 {
-#ifdef __CUDACC__
-    int tid = threadIdx.x;
-#else
-    int tid = 0;
-#endif
+    // Map delta_f to the lookup grid index
+    double idx_f = (delta_f - min_delta_f) / d_delta_f;
+    int i0 = int(idx_f);
 
-    // printf("CHECK11 %d %d\n", n, layer_m);
+    if (i0 < 0 || i0 >= num_delta_f - 1)
+    {
+        // Out of interpolation range — contribution is negligible
+        return cmplx(0.0, 0.0);
+    }
 
-    double d_h_val = 0.0;
-    double h_h_val = 0.0;
-    if (tdi_type == TDI_XYZ)
-    {
-        for (int channel_i = 0; channel_i < 3; channel_i += 1)
-        {
-            for (int channel_j = 0; channel_j < 3; channel_j += 1)
-            {
-                // printf("CHECK12 %d %d %d %d\n", n, layer_m, channel_i, channel_j);
-    
-                // TODO: change from 9 to 6 calculations?
-                get_inner_product_value_cross_channel(&d_h_val, &h_h_val, w_mn[channel_i], w_mn[channel_j], layer_m, n, channel_i, channel_j, data_index, noise_index);                
-                d_h_tmp[tid] += d_h_val;
-                h_h_tmp[tid] += h_h_val;    
-            }
-        } 
-    }
-    else if (tdi_type == TDI_AET)
-    {
-#ifdef __CUDACC__
-#else
-        throw std::invalid_argument("need to add XYZ->AET.");
-#endif
-        for (int channel_i = 0; channel_i < 3; channel_i += 1)
-        {
-            // TODO: change from 9 to 6 calculations?
-            get_inner_product_value(&d_h_val, &h_h_val, w_mn[channel_i], layer_m, n, channel_i, data_index, noise_index);                
-            d_h_tmp[tid] += d_h_val;
-            h_h_tmp[tid] += h_h_val;    
-        } 
-    }
-    else if (tdi_type == TDI_AE)
-    {
-#ifdef __CUDACC__
-#else
-        throw std::invalid_argument("need to add XYZ->AET.");
-#endif
-        for (int channel_i = 0; channel_i < 2; channel_i += 1)
-        {
-            // TODO: change from 9 to 6 calculations?
-            get_inner_product_value(&d_h_val, &h_h_val, w_mn[channel_i], layer_m, n, channel_i, data_index, noise_index);                
-            d_h_tmp[tid] += d_h_val;
-            h_h_tmp[tid] += h_h_val;    
-        } 
-    }
+    double frac = idx_f - double(i0);
+    // Linear interpolation of the complex window DFT
+    cmplx val = window_dft[i0] * (1.0 - frac) + window_dft[i0 + 1] * frac;
+    return val;
 }
 
 CUDA_DEVICE
-void WDMDomain::add_ip_swap_contrib(double *d_h_add_tmp, double *d_h_remove_tmp, double *add_add_tmp, double *remove_remove_tmp, double *add_remove_tmp, double *w_mn_add, double *w_mn_remove, int layer_m, int n, int data_index, int noise_index, int tdi_type)
+cmplx STFTLookupTable::get_coeff(cmplx tdi_channel_val, double f, double fdot, int bin_k)
 {
-#ifdef __CUDACC__
-    int tid = threadIdx.x;
-#else
-    int tid = 0;
-#endif
+    double f_bin = bin_k * df;         // frequency at the center of STFT bin k
+    double delta_f = f_bin - f;        // offset from signal frequency
 
-    double d_h_add_val = 0.0;
-    double d_h_remove_val = 0.0;
-    double add_add_val = 0.0;
-    double remove_remove_val = 0.0;
-    double add_remove_val = 0.0;
-    int nchannels = 3;
-    if (tdi_type == TDI_AE) nchannels = 2;
-
-    if (tdi_type == TDI_XYZ)
-    {
-        for (int channel_i = 0; channel_i < 3; channel_i += 1)
-        {
-            for (int channel_j = 0; channel_j < 3; channel_j += 1)
-            {
-                // TODO: change from 9 to 6 calculations?
-                get_inner_product_value_cross_channel(&d_h_add_val, &add_add_val, w_mn_add[channel_i], w_mn_add[channel_j], layer_m, n, channel_i, channel_j, data_index, noise_index);                
-                d_h_add_tmp[tid] += d_h_add_val;
-                add_add_tmp[tid] += add_add_val; 
-                
-                // TODO: change from 9 to 6 calculations?
-                get_inner_product_value_cross_channel(&d_h_remove_val, &remove_remove_val, w_mn_remove[channel_i], w_mn_remove[channel_j], layer_m, n, channel_i, channel_j, data_index, noise_index);                
-                d_h_remove_tmp[tid] += d_h_remove_val;
-                remove_remove_tmp[tid] += remove_remove_val; 
-
-                // TODO: change from 9 to 6 calculations?
-                get_inner_product_value_cross_channel(&d_h_remove_val, &add_remove_val, w_mn_add[channel_i], w_mn_remove[channel_j], layer_m, n, channel_i, channel_j, data_index, noise_index);                
-                add_remove_tmp[tid] += add_remove_val;
-            }
-        } 
-    }
-    else if ((tdi_type == TDI_AET) || (tdi_type == TDI_AE))
-    {
-#ifdef __CUDACC__
-#else
-        throw std::invalid_argument("need to add XYZ->AET.");
-#endif
-        for (int channel_i = 0; channel_i < nchannels; channel_i += 1)
-        {
-            // TODO: change from 9 to 6 calculations?
-            get_inner_product_value(&d_h_add_val, &add_add_val, w_mn_add[channel_i], layer_m, n, channel_i, data_index, noise_index);                
-            d_h_add_tmp[tid] += d_h_add_val;
-            add_add_tmp[tid] += add_add_val; 
-            
-            // TODO: change from 9 to 6 calculations?
-            get_inner_product_value(&d_h_remove_val, &remove_remove_val, w_mn_remove[channel_i], layer_m, n, channel_i, data_index, noise_index);                
-            d_h_remove_tmp[tid] += d_h_remove_val;
-            remove_remove_tmp[tid] += remove_remove_val; 
-
-            // TODO: change from 9 to 6 calculations?
-            get_inner_product_value_cross_channel(&d_h_remove_val, &add_remove_val, w_mn_add[channel_i], w_mn_remove[channel_i], layer_m, n, channel_i, channel_i, data_index, noise_index);                
-            add_remove_tmp[tid] += add_remove_val;
-        } 
-    }
-    else
-    {
-#ifdef __CUDACC__
-#else
-        throw std::invalid_argument("Incorrect TDI type.");
-#endif
-    }
+    cmplx w_hat = interp_window_dft(delta_f);
+    cmplx coeff = tdi_channel_val * w_hat;
+    return coeff;
 }
 
 #define N_PARAMS_MAX 20
@@ -718,7 +552,7 @@ void gb_wdm_get_ll_kernel(double *d_h_out, double *h_h_out, Orbits* orbits, TDIC
                 {
                     for (int j = 0; j < 3; j += 1) // over channels
                     {
-                        w_mn[j] = wdm_lookup->get_w_mn_lookup(tdi_channel_val[j], f, fdot, layer_m);
+                        w_mn[j] = wdm_lookup->get_coeff(tdi_channel_val[j], f, fdot, layer_m);
                         printf("CHECK8 %e %e %d %d %e %e %e\n", wdm_lookup->df_interp, wdm_lookup->dfdot_interp, layer_m, j, tdi_channel_val[j].real(), tdi_channel_val[j].imag(), w_mn[j]);                
                     }
                     // printf("CHECK9 %d %d\n", n, layer_m);
@@ -777,6 +611,137 @@ void GBComputationGroup::gb_wdm_get_ll_wrap(double *d_h_out, double *h_h_out, Or
 
     // make buffer 
     gb_wdm_get_ll_kernel(d_h_out, h_h_out, orbits, tdi_config, wdm_lookup, wdm, params_all, data_index_all, 
+        noise_index_all, num_bin, nparams, T, tdi_type);
+
+#endif
+}
+
+// ============================================================================
+// STFT kernel: same structure as WDM, but with complex coefficients
+// ============================================================================
+
+CUDA_KERNEL
+void gb_stft_get_ll_kernel(double *d_h_out, double *h_h_out, Orbits* orbits, TDIConfig *tdi_config, STFTLookupTable* stft_lookup, STFTDomain* stft, double *params_all, int *data_index_all, int *noise_index_all, int num_bin, int nparams, double T, int tdi_type)
+{
+    CUDA_SHARED double d_h_tmp[NUM_THREADS_HERE];
+    CUDA_SHARED double h_h_tmp[NUM_THREADS_HERE];
+
+    CUDA_SHARED double params[N_PARAMS_MAX];
+    GBTDIonTheFly tdi_on_fly_here(orbits, tdi_config, T);
+    
+    cmplx tdi_channel_val[3];
+    cmplx stft_coeff[3];
+
+    double f, fdot;
+    
+    CUDA_SHARED int link_Space_craft_rec[NLINKS];
+    CUDA_SHARED int link_Space_craft_em[NLINKS];
+    
+    tdi_on_fly_here.fill_link_arrays(link_Space_craft_rec, link_Space_craft_em);
+    CUDA_SYNC_THREADS;
+    double tn;
+
+#ifdef __CUDACC__
+    int tid = threadIdx.x;
+#else
+    int tid = 0;
+#endif
+    
+    int bin_k;
+    int data_index, noise_index;
+    Vec k(0.0, 0.0, 0.0);
+    Vec u(0.0, 0.0, 0.0);
+    Vec v(0.0, 0.0, 0.0);
+    double dt = stft->dt;
+    int bin_k_here = 0;
+    int num_m = stft->num_m;
+    for (int bin_i = BLOCK_START; bin_i < num_bin; bin_i += GRID_INCR)
+    {
+        d_h_tmp[tid] = 0.0;
+        h_h_tmp[tid] = 0.0;
+        CUDA_SYNC_THREADS;
+
+        data_index = data_index_all[bin_i];
+        noise_index = noise_index_all[bin_i];
+        for (int i = THREAD_START; i < nparams; i += BLOCK_INCR)
+        {
+            params[i] = params_all[bin_i * nparams + i];
+        }
+        CUDA_SYNC_THREADS;
+        
+        tdi_on_fly_here.get_sky_vectors(&k, &u, &v, params);
+        for (int n = THREAD_START; n < stft->num_n; n += BLOCK_INCR)
+        {
+            tn = n * dt;
+            tdi_on_fly_here.get_tdi_Xf_single(&tdi_channel_val[0], tn, params, k, u, v, link_Space_craft_rec, link_Space_craft_em, bin_i);
+            
+            f = tdi_on_fly_here.get_f(tn, params, bin_i);
+            fdot = tdi_on_fly_here.get_fdot(tn, params, bin_i);
+
+            // Central STFT bin for signal frequency
+            bin_k_here = int(f / stft->df);
+            
+            // Leakage into neighboring bins (window_half_width controls range)
+            for (int diff = -stft_lookup->window_half_width; diff <= stft_lookup->window_half_width; diff += 1)
+            {
+                bin_k = bin_k_here + diff;
+                if ((bin_k >= 0) && (bin_k <= num_m - 1))
+                {
+                    for (int j = 0; j < 3; j += 1) // over channels
+                    {
+                        stft_coeff[j] = stft_lookup->get_coeff(tdi_channel_val[j], f, fdot, bin_k);
+                    }
+                    stft->add_ip_contrib(d_h_tmp, h_h_tmp, stft_coeff, bin_k, n, data_index, noise_index, tdi_type);    
+                }
+                CUDA_SYNC_THREADS;
+            }
+        }
+        CUDA_SYNC_THREADS;
+
+#ifdef __CUDACC__        
+        d_h_out[bin_i] = 4.0 * block_reduce(d_h_tmp);
+        h_h_out[bin_i] = 4.0 * block_reduce(h_h_tmp);
+        CUDA_SYNC_THREADS;
+#else
+        d_h_out[bin_i] = 4.0 * d_h_tmp[0];
+        h_h_out[bin_i] = 4.0 * h_h_tmp[0];
+#endif
+    }
+};
+
+void GBComputationGroup::gb_stft_get_ll_wrap(double *d_h_out, double *h_h_out, Orbits* orbits, TDIConfig *tdi_config, STFTLookupTable* stft_lookup, TFDomain<cmplx>* stft, double *params_all, int *data_index_all, int *noise_index_all, int num_bin, int nparams, double T, int tdi_type)
+{
+#ifdef __CUDACC__
+    Orbits *d_orbits;
+    cudaMalloc(&d_orbits, sizeof(Orbits));
+    gpuErrchk(cudaMemcpy(d_orbits, orbits, sizeof(Orbits), cudaMemcpyHostToDevice));
+
+    TDIConfig *d_tdi_config;
+    cudaMalloc(&d_tdi_config, sizeof(TDIConfig));
+    gpuErrchk(cudaMemcpy(d_tdi_config, tdi_config, sizeof(TDIConfig), cudaMemcpyHostToDevice));
+
+    STFTLookupTable *d_stft_lookup;
+    cudaMalloc(&d_stft_lookup, sizeof(STFTLookupTable));
+    gpuErrchk(cudaMemcpy(d_stft_lookup, stft_lookup, sizeof(STFTLookupTable), cudaMemcpyHostToDevice));
+
+    STFTDomain *d_stft;
+    cudaMalloc(&d_stft, sizeof(STFTDomain));
+    gpuErrchk(cudaMemcpy(d_stft, stft, sizeof(STFTDomain), cudaMemcpyHostToDevice));
+
+    gb_stft_get_ll_kernel<<<num_bin, NUM_THREADS_HERE>>>(d_h_out, h_h_out, d_orbits, d_tdi_config, d_stft_lookup, d_stft, params_all, data_index_all, 
+        noise_index_all, num_bin, nparams, T, tdi_type);
+
+    cudaDeviceSynchronize();
+    gpuErrchk(cudaGetLastError());
+
+    gpuErrchk(cudaFree(d_orbits));
+    gpuErrchk(cudaFree(d_tdi_config));
+    gpuErrchk(cudaFree(d_stft_lookup));
+    gpuErrchk(cudaFree(d_stft));
+
+#else
+
+    gb_stft_get_ll_kernel(d_h_out, h_h_out, orbits, tdi_config, stft_lookup, stft, params_all, data_index_all, 
         noise_index_all, num_bin, nparams, T, tdi_type);
 
 #endif
@@ -886,8 +851,8 @@ void gb_wdm_swap_ll_kernel(double *d_h_add_out, double *d_h_remove_out, double *
                     for (int j = 0; j < 3; j += 1) // over channels
                     {
                         // should return roughly zero if outside of useful layer
-                        w_mn_add[j] = wdm_lookup->get_w_mn_lookup(tdi_channel_val_add[j], f_add, fdot_add, layer_m);
-                        w_mn_remove[j] = wdm_lookup->get_w_mn_lookup(tdi_channel_val_remove[j], f_remove, fdot_remove, layer_m);
+                        w_mn_add[j] = wdm_lookup->get_coeff(tdi_channel_val_add[j], f_add, fdot_add, layer_m);
+                        w_mn_remove[j] = wdm_lookup->get_coeff(tdi_channel_val_remove[j], f_remove, fdot_remove, layer_m);
                     }
                     wdm->add_ip_swap_contrib(d_h_add_tmp, d_h_remove_tmp, add_add_tmp, remove_remove_tmp, add_remove_tmp, w_mn_add, w_mn_remove, layer_m, n, data_index, noise_index, tdi_type);    
                 }
@@ -922,8 +887,127 @@ void gb_wdm_swap_ll_kernel(double *d_h_add_out, double *d_h_remove_out, double *
     }
 };
 
+// ============================================================================
+// STFT swap kernel: same structure as WDM swap, complex coefficients
+// ============================================================================
 
-#define NLINKS 6
+CUDA_KERNEL
+void gb_stft_swap_ll_kernel(double *d_h_add_out, double *d_h_remove_out, double *add_add_out, double *remove_remove_out, double *add_remove_out, Orbits* orbits, TDIConfig *tdi_config, STFTLookupTable* stft_lookup, STFTDomain* stft, double *params_add_all, double *params_remove_all, int *data_index_all, int *noise_index_all, int num_bin, int nparams, double T, int tdi_type)
+{
+    CUDA_SHARED double params_add[N_PARAMS_MAX];
+    CUDA_SHARED double params_remove[N_PARAMS_MAX];
+    GBTDIonTheFly tdi_on_fly_here(orbits, tdi_config, T);
+
+    cmplx tdi_channel_val_add[3];
+    cmplx tdi_channel_val_remove[3];
+    cmplx coeff_add[3];
+    cmplx coeff_remove[3];
+
+    double f, fdot;
+    CUDA_SHARED double d_h_add_tmp[NUM_THREADS_HERE];
+    CUDA_SHARED double d_h_remove_tmp[NUM_THREADS_HERE];
+    CUDA_SHARED double add_add_tmp[NUM_THREADS_HERE];
+    CUDA_SHARED double remove_remove_tmp[NUM_THREADS_HERE];
+    CUDA_SHARED double add_remove_tmp[NUM_THREADS_HERE];
+
+    CUDA_SHARED int link_Space_craft_rec[NLINKS];
+    CUDA_SHARED int link_Space_craft_em[NLINKS];
+    
+    tdi_on_fly_here.fill_link_arrays(link_Space_craft_rec, link_Space_craft_em);
+    CUDA_SYNC_THREADS;
+    Vec k_add(0.0, 0.0, 0.0);
+    Vec u_add(0.0, 0.0, 0.0);
+    Vec v_add(0.0, 0.0, 0.0);
+    Vec k_remove(0.0, 0.0, 0.0);
+    Vec u_remove(0.0, 0.0, 0.0);
+    Vec v_remove(0.0, 0.0, 0.0);
+    
+    double tn;
+    double f_add, fdot_add, f_remove, fdot_remove;
+    int bin_k_add, bin_k_remove, bin_k_min, bin_k_max;
+#ifdef __CUDACC__
+    double d_h_add_red = 0.0;
+    double d_h_remove_red = 0.0;
+    double add_add_red = 0.0;
+    double remove_remove_red = 0.0;
+    double add_remove_red = 0.0;
+#endif
+    int bin_k;
+    int data_index, noise_index;
+    double dt = stft->dt;
+    int num_m = stft->num_m;
+    int half_w = stft_lookup->window_half_width;
+    for (int bin_i = BLOCK_START; bin_i < num_bin; bin_i += GRID_INCR)
+    {
+        data_index = data_index_all[bin_i];
+        noise_index = noise_index_all[bin_i];
+        for (int i = THREAD_START; i < nparams; i += BLOCK_INCR)
+        {
+            params_add[i] = params_add_all[bin_i * nparams + i];
+            params_remove[i] = params_remove_all[bin_i * nparams + i];
+        }
+        CUDA_SYNC_THREADS;
+        tdi_on_fly_here.get_sky_vectors(&k_add, &u_add, &v_add, params_add);
+        tdi_on_fly_here.get_sky_vectors(&k_remove, &u_remove, &v_remove, params_remove);
+        for (int n = THREAD_START; n < stft->num_n; n += BLOCK_INCR)
+        {
+            tn = n * dt;
+            tdi_on_fly_here.get_tdi_Xf_single(&tdi_channel_val_add[0], tn, params_add, k_add, u_add, v_add, link_Space_craft_rec, link_Space_craft_em, bin_i);
+            tdi_on_fly_here.get_tdi_Xf_single(&tdi_channel_val_remove[0], tn, params_remove, k_remove, u_remove, v_remove, link_Space_craft_rec, link_Space_craft_em, bin_i);
+            
+            f_add = tdi_on_fly_here.get_f(tn, params_add, bin_i);
+            fdot_add = tdi_on_fly_here.get_fdot(tn, params_add, bin_i);
+
+            f_remove = tdi_on_fly_here.get_f(tn, params_remove, bin_i);
+            fdot_remove = tdi_on_fly_here.get_fdot(tn, params_remove, bin_i);
+
+            bin_k_add = int(f_add / stft->df);
+            bin_k_remove = int(f_remove / stft->df);
+
+            bin_k_min = ((bin_k_add < bin_k_remove) ? bin_k_add : bin_k_remove) - half_w;
+            bin_k_max = ((bin_k_add > bin_k_remove) ? bin_k_add : bin_k_remove) + half_w;
+
+            for (bin_k = bin_k_min; bin_k <= bin_k_max; bin_k += 1)
+            {
+                if ((bin_k >= 0) && (bin_k <= num_m - 1))
+                {
+                    for (int j = 0; j < 3; j += 1)
+                    {
+                        coeff_add[j] = stft_lookup->get_coeff(tdi_channel_val_add[j], f_add, fdot_add, bin_k);
+                        coeff_remove[j] = stft_lookup->get_coeff(tdi_channel_val_remove[j], f_remove, fdot_remove, bin_k);
+                    }
+                    stft->add_ip_swap_contrib(d_h_add_tmp, d_h_remove_tmp, add_add_tmp, remove_remove_tmp, add_remove_tmp, coeff_add, coeff_remove, bin_k, n, data_index, noise_index, tdi_type);    
+                }
+                CUDA_SYNC_THREADS;
+            }
+        }
+        CUDA_SYNC_THREADS;
+
+#ifdef __CUDACC__
+        d_h_add_red = 4.0 * block_reduce(d_h_add_tmp);
+        d_h_remove_red = 4.0 * block_reduce(d_h_remove_tmp);
+        add_add_red = 4.0 * block_reduce(add_add_tmp);
+        remove_remove_red = 4.0 * block_reduce(remove_remove_tmp);
+        add_remove_red = 4.0 * block_reduce(add_remove_tmp);
+        if (threadIdx.x == 0)
+        {
+            d_h_add_out[bin_i] = d_h_add_red;
+            d_h_remove_out[bin_i] = d_h_remove_red;
+            add_add_out[bin_i] = add_add_red;
+            remove_remove_out[bin_i] = remove_remove_red;
+            add_remove_out[bin_i] = add_remove_red;
+        }
+        CUDA_SYNC_THREADS;
+#else
+        d_h_add_out[bin_i] = 4.0 * d_h_add_tmp[0];
+        d_h_remove_out[bin_i] = 4.0 * d_h_remove_tmp[0];
+        add_add_out[bin_i] = 4.0 * add_add_tmp[0];
+        remove_remove_out[bin_i] = 4.0 * remove_remove_tmp[0];
+        add_remove_out[bin_i] = 4.0 * add_remove_tmp[0];
+#endif
+    }
+};
+
 
 CUDA_DEVICE
 void LISATDIonTheFly::get_sky_vectors(Vec *k, Vec *u, Vec *v, double *params)

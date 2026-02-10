@@ -88,6 +88,21 @@ void GBComputationGroupWrap::gb_wdm_get_ll(array_type<double>d_h_out, array_type
         num_bin, nparams, T, tdi_type);
 }
 
+void GBComputationGroupWrap::gb_stft_get_ll(array_type<double>d_h_out, array_type<double>h_h_out, OrbitsWrap_responselisa* orbits_wrap, TDIConfigWrap *tdi_config_wrap, STFTLookupTableWrap* stft_lookup_wrap, STFTDomainWrap* stft_wrap, array_type<double>params_all, array_type<int>data_index_all, array_type<int>noise_index_all, int num_bin, int nparams, double T, int tdi_type)
+{
+    gb_stft_get_ll_wrap(
+        return_pointer_and_check_length(d_h_out, "d_h_out", num_bin, 1), 
+        return_pointer_and_check_length(h_h_out, "h_h_out", num_bin, 1), 
+        orbits_wrap->orbits, 
+        tdi_config_wrap->tdi_config, 
+        stft_lookup_wrap->stft_lookup, 
+        stft_wrap->stft, 
+        return_pointer_and_check_length(params_all, "params_all", nparams, num_bin), 
+        return_pointer_and_check_length(data_index_all, "data_index_all", num_bin, 1), 
+        return_pointer_and_check_length(noise_index_all, "noise_index_all", num_bin, 1), 
+        num_bin, nparams, T, tdi_type);
+}
+
 std::string get_module_path_tdionthefly() {
     // Acquire the GIL if it's not already held (safe to call multiple times)
     py::gil_scoped_acquire acquire;
@@ -265,13 +280,41 @@ void tdionthefly_part(py::module &m) {
          py::arg("wdm_data"), py::arg("wdm_noise"), py::arg("df"), py::arg("dt"), py::arg("num_m"), py::arg("num_n"), py::arg("num_channel"), py::arg("num_data"), py::arg("num_noise"))
     ;
 
+// --- STFTLookupTable bindings ---
+
+#if defined(__CUDA_COMPILATION__) || defined(__CUDACC__)
+    py::class_<STFTLookupTableWrap>(m, "STFTLookupTableWrapGPU")
+#else
+    py::class_<STFTLookupTableWrap>(m, "STFTLookupTableWrapCPU")
+#endif 
+
+    .def(py::init<array_type<std::complex<double>>,int,double,double,int, double, double, int, int, int>(), 
+         py::arg("window_dft"), py::arg("num_delta_f"), py::arg("d_delta_f"), py::arg("min_delta_f"), py::arg("window_half_width"),
+         py::arg("df"), py::arg("dt"), py::arg("num_m"), py::arg("num_n"), py::arg("num_channel"))
+    .def_readwrite("stft_lookup", &STFTLookupTableWrap::stft_lookup)
+    ;
+
+// --- STFTDomain bindings ---
+
+#if defined(__CUDA_COMPILATION__) || defined(__CUDACC__)
+    py::class_<STFTDomainWrap>(m, "STFTDomainWrapGPU")
+#else
+    py::class_<STFTDomainWrap>(m, "STFTDomainWrapCPU")
+#endif 
+
+    .def(py::init<array_type<std::complex<double>>,array_type<std::complex<double>>, double, double, int, int, int, int, int>(), 
+         py::arg("stft_data"), py::arg("stft_noise"), py::arg("df"), py::arg("dt"), py::arg("num_m"), py::arg("num_n"), py::arg("num_channel"), py::arg("num_data"), py::arg("num_noise"))
+    .def_readwrite("stft", &STFTDomainWrap::stft)
+    ;
+
     #if defined(__CUDA_COMPILATION__) || defined(__CUDACC__)
     py::class_<GBComputationGroupWrap>(m, "GBComputationGroupWrapGPU")
 #else
     py::class_<GBComputationGroupWrap>(m, "GBComputationGroupWrapCPU")
 #endif
     .def(py::init<>())
-    .def("gb_wdm_get_ll", &GBComputationGroupWrap::gb_wdm_get_ll, "Log-likelihood computation.")
+    .def("gb_wdm_get_ll", &GBComputationGroupWrap::gb_wdm_get_ll, "Log-likelihood computation (WDM basis).")
+    .def("gb_stft_get_ll", &GBComputationGroupWrap::gb_stft_get_ll, "Log-likelihood computation (STFT basis).")
     
     ;
 }
