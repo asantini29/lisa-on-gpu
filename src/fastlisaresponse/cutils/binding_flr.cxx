@@ -113,27 +113,6 @@ void response_part(py::module &m) {
          py::arg("orbits"), py::arg("tdi_config"))
     ;
 
-// #if defined(__CUDA_COMPILATION__) || defined(__CUDACC__)
-//     py::class_<TDIConfig>(m, "TDIConfigGPU")
-// #else
-//     py::class_<TDIConfig>(m, "TDIConfigCPU")
-// #endif
-
-//     // Bind the constructor
-//     .def(py::init<int *, int *, int *, int *, double *, int *, int, int>(), 
-//          py::arg("unit_starts"), py::arg("unit_lengths"), py::arg("tdi_base_link"), 
-//          py::arg("tdi_link_combinations"), py::arg("tdi_signs_in"), py::arg("channels"), 
-//          py::arg("num_units"), py::arg("num_channels"))
-//     // Expose data members
-//     .def_readwrite("unit_starts", &TDIConfig::unit_starts)
-//     .def_readwrite("unit_lengths", &TDIConfig::unit_lengths)
-//     .def_readwrite("tdi_base_link", &TDIConfig::tdi_base_link)
-//     .def_readwrite("tdi_link_combinations", &TDIConfig::tdi_link_combinations)
-//     .def_readwrite("tdi_signs_in", &TDIConfig::tdi_signs_in)
-//     .def_readwrite("channels", &TDIConfig::channels)
-//     .def_readwrite("num_units", &TDIConfig::num_units)
-//     .def_readwrite("num_channels", &TDIConfig::num_channels)
-//     ;
 
 #if defined(__CUDA_COMPILATION__) || defined(__CUDACC__)
     py::class_<TDIConfigWrap>(m, "TDIConfigWrapGPU")
@@ -142,9 +121,19 @@ void response_part(py::module &m) {
 #endif
 
     // Bind the constructor
-    .def(py::init<array_type<int>, array_type<int>, array_type<int>, array_type<int>, array_type<double>, array_type<int>, int, int>(),
+    .def(py::init<array_type<int>, array_type<int>, array_type<int>, array_type<int>, array_type<double>, array_type<int>, int, int>(), 
          py::arg("unit_starts"), py::arg("unit_lengths"), py::arg("tdi_base_link"), py::arg("tdi_link_combinations"), py::arg("tdi_signs_in"), py::arg("channels"), py::arg("num_units"), py::arg("num_channels"))
-    .def_readwrite("tdi_config", &TDIConfigWrap::tdi_config)
+    ;
+
+#if defined(__CUDA_COMPILATION__) || defined(__CUDACC__)
+    py::class_<TDIConfig>(m, "TDIConfigGPU")
+#else
+    py::class_<TDIConfig>(m, "TDIConfigCPU")
+#endif
+
+    // Bind the constructor
+    .def(py::init<int*, int*, int*, int*, double*, int*, int, int>(), 
+         py::arg("unit_starts"), py::arg("unit_lengths"), py::arg("tdi_base_link"), py::arg("tdi_link_combinations"), py::arg("tdi_signs_in"), py::arg("channels"), py::arg("num_units"), py::arg("num_channels"))
     ;
 
 #if defined(__CUDA_COMPILATION__) || defined(__CUDACC__)
@@ -166,7 +155,6 @@ void response_part(py::module &m) {
     .def_readwrite("orbits", &OrbitsWrap_responselisa::orbits)
     // .def("get_link_ind", &OrbitsWrap::get_link_ind, "Get link index.")
     ;
-    
 
 #if defined(__CUDA_COMPILATION__) || defined(__CUDACC__)
     py::class_<CubicSplineWrap_responselisa>(m, "CubicSplineWrapGPU_responselisa")

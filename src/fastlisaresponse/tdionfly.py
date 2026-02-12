@@ -418,11 +418,14 @@ class TDTDIonTheFly(TDIonTheFly):
     @property
     def wave_gen(self) -> callable:
         """callable: The C++/CUDA waveform generator wrapper."""
+        self.cpp_amp = self.backend.CubicSplineWrap(*self.amp.cpp_class_args)
+        self.cpp_phase = self.backend.CubicSplineWrap(*self.phase.cpp_class_args)
+        self._wave_gen = self.backend.TDSplineTDIWaveformWrap(self.cpp_orbits, self.cpp_tdi_config, self.cpp_amp, self.cpp_phase)
         return self._wave_gen
     
-    @wave_gen.setter
-    def wave_gen(self, wave_gen) -> None:
-        self._wave_gen = wave_gen
+    # @wave_gen.setter
+    # def wave_gen(self, wave_gen) -> None:
+    #     self._wave_gen = wave_gen
     
     def from_tdi_output(self, tdi_output: TDIOutput, fill_splines: Optional[bool] = False) -> "TDTDIOutput":
         """Wrap a base :class:`TDIOutput` as a :class:`TDTDIOutput`.

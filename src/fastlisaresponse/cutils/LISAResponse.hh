@@ -3,9 +3,11 @@
 
 #include "cuda_complex.hpp"
 #include "Detector.hpp"
+#include "gbt_global.h"
 
 #define C_inv 3.3356409519815204e-09
 #define NUM_THREADS_RESPONSE 256
+#define NLINKS 6
 
 typedef gcmplx::complex<double> cmplx;
 
@@ -19,6 +21,7 @@ typedef gcmplx::complex<double> cmplx;
 #define TDIConfig TDIConfigCPU
 #define Orbits OrbitsCPU
 #endif
+
 
 class TDIConfig{
   public:
@@ -47,16 +50,19 @@ class TDIConfig{
     ~TDIConfig(){};
 };
 
+
 class LISAResponse{
   public:
     Orbits *orbits;
+    Orbits *orbits_gpu;
     TDIConfig *tdi_config;
+    // TDIConfig *tdi_config_gpu;
     LISAResponse(Orbits *orbits_, TDIConfig *tdi_config_){
       orbits = orbits_;
       tdi_config = tdi_config_;
-      // TODO: add GPU orbits now?
     };
-    void get_tdi_delays(double *delayed_links_, double *input_links_, int num_inputs, int num_delays, double *t_arr_, // int *unit_starts_, int *unit_lengths_, int *tdi_base_link_, int *tdi_link_combinations_, double *tdi_signs_in_, int *channels_, int num_units, int num_channels,
+    ~LISAResponse(){};
+    void get_tdi_delays(double *delayed_links_, double *input_links_, int num_inputs, int num_delays, double *t_arr_,
                     int order, double sampling_frequency, int buffer_integer, double *A_in_, double deps, int num_A, double *E_in_, int tdi_start_ind);
                     
     void get_response(double *y_gw_, double *t_data_, double *k_in_, double *u_in_, double *v_in_, double dt,

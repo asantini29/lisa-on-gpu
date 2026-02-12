@@ -17,8 +17,6 @@ double C_SI = 299792458.;
 #define NUM_THREADS_HERE 1
 #endif
 
-#define NLINKS 6
-
 CUDA_DEVICE
 LISATDIonTheFly::~LISATDIonTheFly()
 {

@@ -2,10 +2,6 @@
 # ==== BACKEND COMPILATION ====
 # =============================
 
-# TODO: how can we avoid moving source and header files in this directory ?
-#include_directories(BEFORE "include")
-#include_directories(BEFORE "src")
-
 # In the project root CMakeLists.txt, we defined a "fastlisaresponse" interface
 # target with properties WITH_CPU and WITH_GPU defining whether the CPU and a
 # GPU backend need to be compiled. Let's retrieve these information here:
@@ -40,6 +36,7 @@ endif()
 
 include(${GBT_CMAKE_TOOLS})
 set(HERE_CUDA_ARCH ${FASTLISA_CUDA_ARCH})
+set(GBT_LAPACK_DETECT_WITH ${FASTLISA_LAPACK_DETECT_WITH})
 
 # * * * * * * * * * * * * * * * * * * * *
 # * * Definition of compiled backends * *
@@ -60,11 +57,18 @@ execute_process(
 
 execute_process(
   COMMAND "${PYTHON_EXECUTABLE}" -c "if True:
+    import gpubackendtools
+    _tmp = gpubackendtools.__file__
+    print(_tmp.split('/__init__.py')[0])"
+  OUTPUT_VARIABLE GBT_DIR
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+execute_process(
+  COMMAND "${PYTHON_EXECUTABLE}" -c "if True:
     import lisatools
     print(lisatools._version.version)"
   OUTPUT_VARIABLE LISATOOLS_VERSION
   OUTPUT_STRIP_TRAILING_WHITESPACE)
-
 
 message(STATUS "LISATOOLS location is ${LISATOOLS_DIR}.")
 file(GLOB MY_FILES "${LISATOOLS_DIR}/cutils/*")
@@ -81,10 +85,90 @@ else()
   message(STATUS "PSD.cu not found in lisatools - building without PSD support")
 endif()
 
-# I. Process fastlisaresponse_utils_wrap.pyx into a C++ file
+execute_process(
+  COMMAND "${PYTHON_EXECUTABLE}" -c "if True:
+    import gpubackendtools
+    print(gpubackendtools._version.version)"
+  OUTPUT_VARIABLE GBT_VERSION
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+
+execute_process(
+  COMMAND "${PYTHON_EXECUTABLE}" -c "if True:
+    from lisatools_backend_cpu import pycppdetector
+    print(pycppdetector.__file__)"
+  OUTPUT_VARIABLE LISATOOLS_DETECTOR_CPU
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+  execute_process(
+  COMMAND "${PYTHON_EXECUTABLE}" -c "if True:
+    from gbt_backend_cpu import interp
+    print(interp.__file__)"
+  OUTPUT_VARIABLE GBT_INTERP_CPU
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+  message(STATUS "TEST CHECK 1: ${GBT_INTERP_CPU}")
+
+message(STATUS "GBT version: ${GBT_VERSION}")
+
+message(STATUS "LISATOOLS location is ${LISATOOLS_DIR}.")
+message(STATUS "GBT location is ${GBT_DIR}.")
+file(GLOB MY_FILES "${LISATOOLS_DIR}/cutils/*" "${GBT_DIR}/cutils/*")
+message(STATUS "Source files: ${MY_FILES}")
+
+if(NOT EXISTS "${LISATOOLS_DIR}/cutils/binding.hpp")
+  message(FATAL_ERROR "${LISATOOLS_DIR}/cutils/binding.hpp does not exist.")
+endif()
+
+if(NOT EXISTS "${GBT_DIR}/cutils/gbt_binding.hpp")
+  message(FATAL_ERROR "${GBT_DIR}/cutils/gbt_binding.hpp does not exist.")
+endif()
+
+get_filename_component(LISATOOLS_DETECTOR_CPU_DIR ${LISATOOLS_DETECTOR_CPU} DIRECTORY)
+get_filename_component(LISATOOLS_DETECTOR_CPU_LIB_NAME ${LISATOOLS_DETECTOR_CPU} NAME)
+message(STATUS "dir: ${LISATOOLS_DETECTOR_CPU_DIR}")
+
+find_library(LISATOOLS_DETECTOR_STATIC_LIB_CPU
+    NAMES detector # The name of the library (without 'lib' prefix or '.a' extension)
+    PATHS ${LISATOOLS_DETECTOR_CPU_DIR} # The specific folder to check
+    NO_DEFAULT_PATH_LOGIC # Optional: Restricts search to only the provided PATHS
+)
+
+if(LISATOOLS_DETECTOR_STATIC_LIB_CPU)
+    message("Found static library at: ${LISATOOLS_DETECTOR_STATIC_LIB_CPU}")
+    # You can now use the library, e.g., add_library(MyImportedLib STATIC IMPORTED)
+    # and set its location property. Or link directly in target_link_libraries
+else()
+    message(FATAL_ERROR "LISA Analysis Tools detector static library not found in the specified folder!")
+endif()
+
+message(STATUS "TEST CHECK: ${GBT_INTERP_CPU}")
+get_filename_component(GBT_INTERP_CPU_DIR ${GBT_INTERP_CPU} DIRECTORY)
+get_filename_component(GBT_INTERP_CPU_LIB_NAME ${GBT_INTERP_CPU} NAME)
+message(STATUS "dir: ${GBT_INTERP_CPU_DIR}")
+
+find_library(GBT_INTERP_STATIC_LIB_CPU
+    NAMES interp # The name of the library (without 'lib' prefix or '.a' extension)
+    PATHS ${GBT_INTERP_CPU_DIR} # The specific folder to check
+    NO_DEFAULT_PATH_LOGIC # Optional: Restricts search to only the provided PATHS
+)
+
+if(GBT_INTERP_STATIC_LIB_CPU)
+    message("Found static library at: ${GBT_INTERP_STATIC_LIB_CPU}")
+    # You can now use the library, e.g., add_library(MyImportedLib STATIC IMPORTED)
+    # and set its location property. Or link directly in target_link_libraries
+else()
+    message(FATAL_ERROR "GBT interp static library not found in the specified folder!")
+endif()
+
+# interp needs to link against LAPACKE. USe the following method to detect
+# it and obtain ${GBT_LAPACKE_LIBS}. In case of failure, it will stop the
+# processing execution.
+enable_language(Fortran)
+get_lapacke()
 
 # II. Declare the CPU backend
 if(FASTLISA_WITH_CPU)
+
   add_custom_command(
     OUTPUT "LISAResponse.cxx"
     COMMENT "Copy LISAResponse.cu to LISAResponse.cxx"
@@ -155,7 +239,6 @@ if(FASTLISA_WITH_CPU)
   target_include_directories(fastlisaresponse_cpu_responselisa PUBLIC "${LISATOOLS_DIR}/cutils/" ${GBT_CUTILS})  
   target_sources(fastlisaresponse_cpu_responselisa PUBLIC FILE_SET HEADERS FILES
                                           binding_flr.hpp)
-
 
 endif()
 
@@ -247,5 +330,92 @@ if(FASTLISA_WITH_GPU)
   target_include_directories(fastlisaresponse_gpu_responselisa PUBLIC "${LISATOOLS_DIR}/cutils/" ${GBT_CUTILS})  
   
 endif()
+
+#####################
+## tdi on the fly  ##
+#####################
+
+
+# II. Declare the CPU backend
+if(FASTLISA_WITH_CPU)
+  add_custom_command(
+    OUTPUT "TDIonTheFly.cxx"
+    COMMENT "Copy TDIonTheFly.cu to TDIonTheFly.cxx"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/TDIonTheFly.cu"
+            "${CMAKE_CURRENT_BINARY_DIR}/TDIonTheFly.cxx"
+    DEPENDS "TDIonTheFly.cu"
+    VERBATIM)
+
+  add_custom_command(
+    OUTPUT "LISAResponse.cxx"
+    COMMENT "Copy LISAResponse.cu to LISAResponse.cxx"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/LISAResponse.cu"
+            "${CMAKE_CURRENT_BINARY_DIR}/LISAResponse.cxx"
+    DEPENDS "LISAResponse.cu"
+    VERBATIM)
+
+    add_custom_command(
+    OUTPUT "Detector.cxx"
+    COMMENT "Copy Detector.cu to Detector.cxx"
+    COMMAND ${CMAKE_COMMAND} -E copy "${LISATOOLS_DIR}/cutils/Detector.cu"
+            "${CMAKE_CURRENT_BINARY_DIR}/Detector.cxx"
+    DEPENDS "${LISATOOLS_DIR}/cutils/Detector.cu"
+    VERBATIM)
+
+  add_custom_command(
+    OUTPUT "Interpolate.cxx"
+    COMMENT "Copy Interpolate.cu to Interpolate.cxx"
+    COMMAND ${CMAKE_COMMAND} -E copy "${GBT_DIR}/cutils/Interpolate.cu"
+            "${CMAKE_CURRENT_BINARY_DIR}/Interpolate.cxx"
+    DEPENDS "${GBT_DIR}/cutils/Interpolate.cu"
+    VERBATIM)
+
+  add_library(fastlisaresponse_cpu_tdionthefly_static STATIC Interpolate.cxx Detector.cxx LISAResponse.cxx TDIonTheFly.cxx)
+  apply_cpu_backend_common_options(tdionthefly fastlisaresponse fastlisaresponse true )
+  message(STATUS "GBT_LAPACKE_INCLUDE_DIR: ${GBT_LAPACKE_INCLUDE_DIR}")
+  target_include_directories(fastlisaresponse_cpu_tdionthefly_static PUBLIC "${LISATOOLS_DIR}/cutils/" ${GBT_CUTILS} ${GBT_LAPACKE_INCLUDE_DIR})  
+  # target_link_libraries(fastlisaresponse_cpu_tdionthefly_static PUBLIC ${LISATOOLS_DETECTOR_STATIC_LIB_CPU})
+  # target_link_directories(fastlisaresponse_cpu_tdionthefly_static PUBLIC ${LISATOOLS_DETECTOR_CPU_DIR})
+  target_sources(fastlisaresponse_cpu_tdionthefly_static PUBLIC FILE_SET HEADERS FILES
+                                        TDIonTheFly.hh)
+  target_link_libraries(fastlisaresponse_cpu_tdionthefly_static LINK_PUBLIC ${GBT_LAPACKE_LIBS}
+                        ${GBT_LAPACKE_EXTRA_LIBS})
+
+  pybind11_add_module(fastlisaresponse_cpu_tdionthefly "${LISATOOLS_DIR}/cutils/binding.cxx" "${GBT_DIR}/cutils/gbt_binding.cxx" binding_flr.cxx binding_tof.cxx)
+  apply_cpu_backend_common_options(tdionthefly fastlisaresponse fastlisaresponse false)
+  
+  # Link your target to the imported target name
+  target_link_libraries(fastlisaresponse_cpu_tdionthefly PUBLIC fastlisaresponse_cpu_tdionthefly_static)  #  ${LISATOOLS_DETECTOR_STATIC_LIB_CPU})
+  # target_link_directories(fastlisaresponse_cpu_tdionthefly PUBLIC ${LISATOOLS_DETECTOR_CPU_DIR})  
+  target_include_directories(fastlisaresponse_cpu_tdionthefly PUBLIC "${LISATOOLS_DIR}/cutils/" ${GBT_CUTILS} ${GBT_LAPACKE_INCLUDE_DIR})  
+  target_sources(fastlisaresponse_cpu_tdionthefly PUBLIC FILE_SET HEADERS FILES
+                                          binding_tof.hpp)
+  target_link_libraries(fastlisaresponse_cpu_tdionthefly LINK_PUBLIC ${GBT_LAPACKE_LIBS}
+                        ${GBT_LAPACKE_EXTRA_LIBS})
+
+
+
+endif()
+
+
+# II. Declare the CPU backend
+if(FASTLISA_WITH_GPU)
+  add_library(fastlisaresponse_gpu_tdionthefly_gpu_static STATIC ${GBT_DIR}/cutils/Interpolate.cu ${LISATOOLS_DIR}/cutils/Detector.cu LISAResponse.cu TDIonTheFly.cu)
+  apply_gpu_backend_common_options(tdionthefly_gpu fastlisaresponse fastlisaresponse true )
+  target_include_directories(fastlisaresponse_gpu_tdionthefly_gpu_static PUBLIC "${LISATOOLS_DIR}/cutils/" ${GBT_CUTILS})  
+  target_sources(fastlisaresponse_gpu_tdionthefly_gpu_static PUBLIC FILE_SET HEADERS FILES
+                                        TDIonTheFly.hh)
+
+  pybind11_add_module(fastlisaresponse_gpu_tdionthefly "${LISATOOLS_DIR}/cutils/binding.cxx" "${GBT_DIR}/cutils/gbt_binding.cxx" binding_flr.cxx binding_tof.cxx)
+  apply_gpu_backend_common_options(tdionthefly fastlisaresponse fastlisaresponse false)
+
+  # Link your target to the imported target name
+  target_link_libraries(fastlisaresponse_gpu_tdionthefly PUBLIC fastlisaresponse_gpu_tdionthefly_gpu_static)  #  ${LISATOOLS_DETECTOR_STATIC_LIB_CPU})
+  target_include_directories(fastlisaresponse_gpu_tdionthefly PUBLIC "${LISATOOLS_DIR}/cutils/" ${GBT_CUTILS})  
+  target_sources(fastlisaresponse_gpu_tdionthefly PUBLIC FILE_SET HEADERS FILES
+                                          binding_tof.hpp)
+
+endif()
+
 
 

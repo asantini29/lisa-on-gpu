@@ -7,11 +7,13 @@ import abc
 from typing import Optional, Sequence, TypeVar, Union
 from ..utils.exceptions import *
 
+
 from gpubackendtools.gpubackendtools import BackendMethods, CpuBackend, Cuda11xBackend, Cuda12xBackend
 from gpubackendtools.exceptions import *
 
 @dataclasses.dataclass
 class FastLISAResponseBackendMethods(BackendMethods):
+    TDSplineTDIWaveformWrap: object
     FDSplineTDIWaveformWrap: object
     GBTDIonTheFlyWrap: object
     LISAResponseWrap: object
@@ -29,6 +31,7 @@ class FastLISAResponseBackendMethods(BackendMethods):
     
 
 class FastLISAResponseBackend:
+    TDSplineTDIWaveformWrap: object
     FDSplineTDIWaveformWrap: object
     GBTDIonTheFlyWrap: object
     LISAResponseWrap: object
@@ -50,8 +53,13 @@ class FastLISAResponseBackend:
         # pass rest to general backend
         assert isinstance(fastlisaresponse_backend_methods, FastLISAResponseBackendMethods)
 
+        self.TDSplineTDIWaveformWrap = fastlisaresponse_backend_methods.TDSplineTDIWaveformWrap
         self.FDSplineTDIWaveformWrap = fastlisaresponse_backend_methods.FDSplineTDIWaveformWrap
         self.GBTDIonTheFlyWrap = fastlisaresponse_backend_methods.GBTDIonTheFlyWrap
+        self.OrbitsWrap = fastlisaresponse_backend_methods.OrbitsWrap
+        self.TDIConfigWrap = fastlisaresponse_backend_methods.TDIConfigWrap
+        self.TDIConfig = fastlisaresponse_backend_methods.TDIConfig
+        self.CubicSplineWrap = fastlisaresponse_backend_methods.CubicSplineWrap
         self.LISAResponseWrap = fastlisaresponse_backend_methods.LISAResponseWrap
         self.LISAResponse = fastlisaresponse_backend_methods.LISAResponse
         self.OrbitsWrap = fastlisaresponse_backend_methods.OrbitsWrap
@@ -79,7 +87,8 @@ class FastLISAResponseCpuBackend(CpuBackend, FastLISAResponseBackend):
     def cpu_methods_loader() -> FastLISAResponseBackendMethods:
         try:
             import fastlisaresponse_backend_cpu.responselisa
-            
+            import fastlisaresponse_backend_cpu.tdionthefly
+
         except (ModuleNotFoundError, ImportError) as e:
             raise BackendUnavailableException(
                 "'cpu' backend could not be imported."
@@ -92,8 +101,8 @@ class FastLISAResponseCpuBackend(CpuBackend, FastLISAResponseBackend):
             "AET": fastlisaresponse_backend_cpu.tdionthefly.TDI_AET,
             "AE": fastlisaresponse_backend_cpu.tdionthefly.TDI_AE,
         }
-
         return FastLISAResponseBackendMethods(
+            TDSplineTDIWaveformWrap=fastlisaresponse_backend_cpu.tdionthefly.TDSplineTDIWaveformWrapCPU,
             FDSplineTDIWaveformWrap=fastlisaresponse_backend_cpu.tdionthefly.FDSplineTDIWaveformWrapCPU,
             GBTDIonTheFlyWrap=fastlisaresponse_backend_cpu.tdionthefly.GBTDIonTheFlyWrapCPU,
             LISAResponseWrap=fastlisaresponse_backend_cpu.responselisa.LISAResponseWrapCPU,
@@ -126,7 +135,8 @@ class FastLISAResponseCuda11xBackend(Cuda11xBackend, FastLISAResponseBackend):
     def cuda11x_module_loader():
         try:
             import fastlisaresponse_backend_cuda11x.responselisa
-            
+            import fastlisaresponse_backend_cuda11x.tdionthefly
+
         except (ModuleNotFoundError, ImportError) as e:
             raise BackendUnavailableException(
                 "'cuda11x' backend could not be imported."
@@ -145,7 +155,13 @@ class FastLISAResponseCuda11xBackend(Cuda11xBackend, FastLISAResponseBackend):
             "AE": fastlisaresponse_backend_cuda11x.tdionthefly.TDI_AE,
         }
 
+        tmp = {
+            "XYZ": fastlisaresponse_backend_cuda11x.tdionthefly.TDI_XYZ,
+            "AET": fastlisaresponse_backend_cuda11x.tdionthefly.TDI_AET,
+            "AE": fastlisaresponse_backend_cuda11x.tdionthefly.TDI_AE,
+        }
         return FastLISAResponseBackendMethods(
+            TDSplineTDIWaveformWrap=fastlisaresponse_backend_cuda11x.tdionthefly.TDSplineTDIWaveformWrapGPU,
             FDSplineTDIWaveformWrap=fastlisaresponse_backend_cuda11x.tdionthefly.FDSplineTDIWaveformWrapGPU,
             GBTDIonTheFlyWrap=fastlisaresponse_backend_cuda11x.tdionthefly.GBTDIonTheFlyWrapGPU,
             LISAResponseWrap=fastlisaresponse_backend_cuda11x.responselisa.LISAResponseWrapGPU,
@@ -176,7 +192,8 @@ class FastLISAResponseCuda12xBackend(Cuda12xBackend, FastLISAResponseBackend):
     def cuda12x_module_loader():
         try:
             import fastlisaresponse_backend_cuda12x.responselisa
-            
+            import fastlisaresponse_backend_cuda12x.tdionthefly
+
         except (ModuleNotFoundError, ImportError) as e:
             raise BackendUnavailableException(
                 "'cuda12x' backend could not be imported."
@@ -188,14 +205,13 @@ class FastLISAResponseCuda12xBackend(Cuda12xBackend, FastLISAResponseBackend):
             raise MissingDependencies(
                 "'cuda12x' backend requires cupy", pip_deps=["cupy-cuda12x"]
             ) from e
-        
         tmp = {
             "XYZ": fastlisaresponse_backend_cuda12x.tdionthefly.TDI_XYZ,
             "AET": fastlisaresponse_backend_cuda12x.tdionthefly.TDI_AET,
             "AE": fastlisaresponse_backend_cuda12x.tdionthefly.TDI_AE,
         }
-
         return FastLISAResponseBackendMethods(
+            TDSplineTDIWaveformWrap=fastlisaresponse_backend_cuda12x.tdionthefly.TDSplineTDIWaveformWrapGPU,
             FDSplineTDIWaveformWrap=fastlisaresponse_backend_cuda12x.tdionthefly.FDSplineTDIWaveformWrapGPU,
             GBTDIonTheFlyWrap=fastlisaresponse_backend_cuda12x.tdionthefly.GBTDIonTheFlyWrapGPU,
             LISAResponseWrap=fastlisaresponse_backend_cuda12x.responselisa.LISAResponseWrapGPU,
@@ -213,12 +229,6 @@ class FastLISAResponseCuda12xBackend(Cuda12xBackend, FastLISAResponseBackend):
             xp=cupy,
         )
 
-
-KNOWN_BACKENDS = {
-    "cuda12x": FastLISAResponseCuda12xBackend,
-    "cuda11x": FastLISAResponseCuda11xBackend,
-    "cpu": FastLISAResponseCpuBackend,
-}
 
 """List of existing backends, per default order of preference."""
 # TODO: __all__ ?

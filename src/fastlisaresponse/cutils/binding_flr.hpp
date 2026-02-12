@@ -101,6 +101,30 @@ class CubicSplineWrap_responselisa : public ReturnPointerBase {
 
 };
 
+
+
+class OrbitsWrap_responselisa : public ReturnPointerBase{
+  public:
+    Orbits *orbits;
+    OrbitsWrap_responselisa(double dt_, int N_, array_type<double> n_arr_, array_type<double> ltt_arr_, array_type<double> x_arr_, array_type<int> links_, array_type<int> sc_r_, array_type<int> sc_e_, double armlength_)
+    {
+
+        double *_n_arr = return_pointer_and_check_length(n_arr_, "n_arr", N_, 6 * 3);
+        double *_ltt_arr = return_pointer_and_check_length(ltt_arr_, "ltt_arr", N_, 6);
+        double *_x_arr = return_pointer_and_check_length(x_arr_, "x_arr", N_, 3 * 3);
+
+        int *_sc_r = return_pointer_and_check_length(sc_r_, "sc_r", 6, 1);
+        int *_sc_e = return_pointer_and_check_length(sc_e_, "sc_e", 6, 1);
+        int *_links = return_pointer_and_check_length(links_, "links", 6, 1);
+
+        orbits = new Orbits(dt_, N_, _n_arr, _ltt_arr, _x_arr, _links,  _sc_r, _sc_e, armlength_);
+    };
+    ~OrbitsWrap_responselisa(){
+        delete orbits;
+    };
+};
+
+
 class TDIConfigWrap : public ReturnPointerBase{
   public:
     TDIConfig *tdi_config;
@@ -121,30 +145,7 @@ class TDIConfigWrap : public ReturnPointerBase{
     };
 };
 
-class OrbitsWrap_responselisa : public ReturnPointerBase{
-  public:
-    Orbits *orbits;
-    // OrbitsWrap_responselisa(double dt_, int N_, array_type<double> n_arr_, array_type<double> ltt_arr_, array_type<double> x_arr_, array_type<int> links_, array_type<int> sc_r_, array_type<int> sc_e_, double armlength_)
-    OrbitsWrap_responselisa(double sc_t0_, double sc_dt_, int sc_N_, double ltt_t0_, double ltt_dt_, int ltt_N_, array_type<double> n_arr_, array_type<double> ltt_arr_, array_type<double> x_arr_, array_type<int> links_, array_type<int> sc_r_, array_type<int> sc_e_, double armlength_)
-    {
-
-        double *_n_arr = return_pointer_and_check_length(n_arr_, "n_arr", sc_N_, 6 * 3);
-        double *_ltt_arr = return_pointer_and_check_length(ltt_arr_, "ltt_arr", ltt_N_, 6);
-        double *_x_arr = return_pointer_and_check_length(x_arr_, "x_arr", sc_N_, 3 * 3);
-
-        int *_sc_r = return_pointer_and_check_length(sc_r_, "sc_r", 6, 1);
-        int *_sc_e = return_pointer_and_check_length(sc_e_, "sc_e", 6, 1);
-        int *_links = return_pointer_and_check_length(links_, "links", 6, 1);
-
-        // orbits = new Orbits(dt_, N_, _n_arr, _ltt_arr, _x_arr, _links,  _sc_r, _sc_e, armlength_);
-        orbits = new Orbits(sc_t0_, sc_dt_, sc_N_, ltt_t0_, ltt_dt_, ltt_N_, _n_arr, _ltt_arr, _x_arr, _links,  _sc_r, _sc_e, armlength_);
-    };
-    ~OrbitsWrap_responselisa(){
-        delete orbits;
-    };
-};
-
-class LISAResponseWrap : public ReturnPointerBase{
+class LISAResponseWrap : public ReturnPointerBase {
   public:
     LISAResponse *response;
     OrbitsWrap_responselisa *orbits;
@@ -167,7 +168,7 @@ class LISAResponseWrap : public ReturnPointerBase{
                   array_type<std::complex<double>> input_in_, int num_inputs, int order,
                   double sampling_frequency, int buffer_integer,
                   array_type<double> A_in_, double deps, int num_A, array_type<double> E_in_, int projections_start_ind);
-
+    
 };
 
 #endif // __BINDING_FLR_HPP__
