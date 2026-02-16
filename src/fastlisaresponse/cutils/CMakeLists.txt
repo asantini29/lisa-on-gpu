@@ -131,6 +131,14 @@ else()
     message(FATAL_ERROR "LISA Analysis Tools detector static library not found in the specified folder!")
 endif()
 
+if(EXISTS "${LISATOOLS_DIR}/cutils/PSD.cu")
+  set(LISATOOLS_HAS_PSD TRUE)
+  message(STATUS "PSD.cu found in lisatools - will include PSD support")
+else()
+  set(LISATOOLS_HAS_PSD FALSE)
+  message(STATUS "PSD.cu not found in lisatools - building without PSD support")
+endif()
+
 message(STATUS "TEST CHECK: ${GBT_INTERP_CPU}")
 get_filename_component(GBT_INTERP_CPU_DIR ${GBT_INTERP_CPU} DIRECTORY)
 get_filename_component(GBT_INTERP_CPU_LIB_NAME ${GBT_INTERP_CPU} NAME)
@@ -175,11 +183,28 @@ if(FASTLISA_WITH_CPU)
     DEPENDS "${LISATOOLS_DIR}/cutils/Detector.cu"
     VERBATIM)
 
+  if(LISATOOLS_HAS_PSD)
+    add_custom_command(
+      OUTPUT "PSD.cxx"
+      COMMENT "Copy PSD.cu to PSD.cxx"
+      COMMAND ${CMAKE_COMMAND} -E copy "${LISATOOLS_DIR}/cutils/PSD.cu"
+              "${CMAKE_CURRENT_BINARY_DIR}/PSD.cxx"
+      DEPENDS "${LISATOOLS_DIR}/cutils/PSD.cu"
+      VERBATIM)
+  endif()
+
+
   if(NOT EXISTS "${LISATOOLS_DIR}/cutils/binding.hpp")
     message(FATAL_ERROR "${LISATOOLS_DIR}/cutils/binding.hpp does not exist.")
   endif()
 
-  add_library(fastlisaresponse_cpu_response_static STATIC Detector.cxx LISAResponse.cxx)
+  # Build source list - PSD.cxx is optional
+  set(CPU_RESPONSE_SOURCES Detector.cxx LISAResponse.cxx)
+  if(LISATOOLS_HAS_PSD)
+    list(APPEND CPU_RESPONSE_SOURCES PSD.cxx)
+  endif()
+
+  add_library(fastlisaresponse_cpu_response_static STATIC ${CPU_RESPONSE_SOURCES})
   apply_cpu_backend_common_options(response fastlisaresponse fastlisaresponse true )
   target_include_directories(fastlisaresponse_cpu_response_static PUBLIC "${LISATOOLS_DIR}/cutils/" ${GBT_CUTILS})  
   target_sources(fastlisaresponse_cpu_response_static PUBLIC FILE_SET HEADERS FILES
@@ -199,7 +224,77 @@ endif()
 # III. Declare the GPU backend
 if(FASTLISA_WITH_GPU)
 
-  add_library(fastlisaresponse_gpu_response_gpu_static STATIC "${LISATOOLS_DIR}/cutils/Detector.cu" LISAResponse.cu)
+  execute_process(
+  COMMAND "${PYTHON_EXECUTABLE}" -c "if True:
+    from lisatools_backend_cuda12x import pycppdetector
+    print(pycppdetector.__file__)"
+  OUTPUT_VARIABLE LISATOOLS_DETECTOR_GPU
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+  message(STATUS "LISATOOLS_DETECTOR_GPU: ${LISATOOLS_DETECTOR_GPU}")
+
+  get_filename_component(LISATOOLS_DETECTOR_GPU_DIR ${LISATOOLS_DETECTOR_GPU} DIRECTORY)
+  get_filename_component(LISATOOLS_DETECTOR_GPU_LIB_NAME ${LISATOOLS_DETECTOR_GPU} NAME)
+  message(STATUS "dir: ${LISATOOLS_DETECTOR_GPU_DIR}")
+  
+  file(GLOB MY_SHARED_GPU "${LISATOOLS_DETECTOR_GPU_DIR}/*.a")
+  message(STATUS "LISATOOLS lib files: ${MY_SHARED_GPU}")
+
+  find_library(LISATOOLS_DETECTOR_STATIC_LIB_GPU
+      NAMES detector_gpu # The name of the library (without 'lib' prefix or '.a' extension)
+      PATHS ${LISATOOLS_DETECTOR_GPU_DIR} # The specific folder to check
+      NO_DEFAULT_PATH_LOGIC # Optional: Restricts search to only the provided PATHS
+  )
+
+  if(LISATOOLS_DETECTOR_STATIC_LIB_GPU)
+      message("Found static library at: ${LISATOOLS_DETECTOR_STATIC_LIB_GPU}")
+      # You can now use the library, e.g., add_library(MyImportedLib STATIC IMPORTED)
+      # and set its location property. Or link directly in target_link_libraries
+  else()
+      message(FATAL_ERROR "LISA Analysis Tools detector (gpu) static library not found in the specified folder!")
+  endif()
+
+  set(DETECTOR_GPU_OBJ "${LISATOOLS_DETECTOR_GPU_DIR}/Detector.cu.o")  
+
+  if(EXISTS "${DETECTOR_GPU_OBJ}")
+    message("INFO: The file ${DETECTOR_GPU_OBJ} exists.")
+    # Proceed with configuration, e.g., add the file to a target
+    # add_executable(MyTarget ${DETECTOR_GPU_OBJ})
+  else()
+    message(STATUS "The file ${DETECTOR_GPU_OBJ} does not exist. We will unpack the installed library.")
+    execute_process (
+      COMMAND bash -c "cd ${LISATOOLS_DETECTOR_GPU_DIR} && ar -x libdetector_gpu.a Detector.cu.o && cd -"
+    )
+    # Handle the missing file, e.g., set a variable, issue a warning, or a fatal error
+    # message(FATAL_ERROR "Required file not found!")
+    if(NOT EXISTS "${DETECTOR_GPU_OBJ}")
+      message(FATAL_ERROR "${DETECTOR_GPU_OBJ} creation not working.")
+    endif()
+  endif()
+
+  if(LISATOOLS_HAS_PSD)
+    set(PSD_GPU_OBJ "${LISATOOLS_DETECTOR_GPU_DIR}/PSD.cu.o")  
+
+    if(EXISTS "${PSD_GPU_OBJ}")
+      message("INFO: The file ${PSD_GPU_OBJ} exists.")
+    else()
+      message(STATUS "The file ${PSD_GPU_OBJ} does not exist. We will unpack the installed library.")
+      execute_process (
+        COMMAND bash -c "cd ${LISATOOLS_DETECTOR_GPU_DIR} && ar -x libdetector_gpu.a PSD.cu.o && cd -"
+      )
+      if(NOT EXISTS "${PSD_GPU_OBJ}")
+        message(FATAL_ERROR "${PSD_GPU_OBJ} creation not working.")
+      endif()
+    endif()
+  endif()
+
+  # Build GPU source list - PSD.cu is optional
+  set(GPU_RESPONSE_SOURCES "${LISATOOLS_DIR}/cutils/Detector.cu" LISAResponse.cu)
+  if(LISATOOLS_HAS_PSD)
+    list(APPEND GPU_RESPONSE_SOURCES "${LISATOOLS_DIR}/cutils/PSD.cu")
+  endif()
+
+  add_library(fastlisaresponse_gpu_response_gpu_static STATIC ${GPU_RESPONSE_SOURCES})
   apply_gpu_backend_common_options(response_gpu fastlisaresponse fastlisaresponse true)
   target_sources(fastlisaresponse_gpu_response_gpu_static PUBLIC FILE_SET HEADERS FILES
                                          LISAResponse.hh)
@@ -254,7 +349,23 @@ if(FASTLISA_WITH_CPU)
     DEPENDS "${GBT_DIR}/cutils/Interpolate.cu"
     VERBATIM)
 
-  add_library(fastlisaresponse_cpu_tdionthefly_static STATIC Interpolate.cxx Detector.cxx LISAResponse.cxx TDIonTheFly.cxx)
+  if(LISATOOLS_HAS_PSD)
+    add_custom_command(
+      OUTPUT "PSD.cxx"
+      COMMENT "Copy PSD.cu to PSD.cxx"
+      COMMAND ${CMAKE_COMMAND} -E copy "${LISATOOLS_DIR}/cutils/PSD.cu"
+              "${CMAKE_CURRENT_BINARY_DIR}/PSD.cxx"
+      DEPENDS "${LISATOOLS_DIR}/cutils/PSD.cu"
+      VERBATIM)
+  endif()
+
+  # Build source list - PSD.cxx is optional
+  set(CPU_TOF_SOURCES Interpolate.cxx Detector.cxx LISAResponse.cxx TDIonTheFly.cxx)
+  if(LISATOOLS_HAS_PSD)
+    list(APPEND CPU_TOF_SOURCES PSD.cxx)
+  endif()
+
+  add_library(fastlisaresponse_cpu_tdionthefly_static STATIC ${CPU_TOF_SOURCES})
   apply_cpu_backend_common_options(tdionthefly fastlisaresponse fastlisaresponse true )
   message(STATUS "GBT_LAPACKE_INCLUDE_DIR: ${GBT_LAPACKE_INCLUDE_DIR}")
   target_include_directories(fastlisaresponse_cpu_tdionthefly_static PUBLIC "${LISATOOLS_DIR}/cutils/" ${GBT_CUTILS} ${GBT_LAPACKE_INCLUDE_DIR})  
@@ -284,7 +395,13 @@ endif()
 
 # II. Declare the CPU backend
 if(FASTLISA_WITH_GPU)
-  add_library(fastlisaresponse_gpu_tdionthefly_gpu_static STATIC ${GBT_DIR}/cutils/Interpolate.cu ${LISATOOLS_DIR}/cutils/Detector.cu LISAResponse.cu TDIonTheFly.cu)
+  # Build GPU source list - PSD.cu is optional
+  set(GPU_TOF_SOURCES ${GBT_DIR}/cutils/Interpolate.cu ${LISATOOLS_DIR}/cutils/Detector.cu LISAResponse.cu TDIonTheFly.cu)
+  if(LISATOOLS_HAS_PSD)
+    list(APPEND GPU_TOF_SOURCES "${LISATOOLS_DIR}/cutils/PSD.cu")
+  endif()
+
+  add_library(fastlisaresponse_gpu_tdionthefly_gpu_static STATIC ${GPU_TOF_SOURCES})
   apply_gpu_backend_common_options(tdionthefly_gpu fastlisaresponse fastlisaresponse true )
   target_include_directories(fastlisaresponse_gpu_tdionthefly_gpu_static PUBLIC "${LISATOOLS_DIR}/cutils/" ${GBT_CUTILS})  
   target_sources(fastlisaresponse_gpu_tdionthefly_gpu_static PUBLIC FILE_SET HEADERS FILES

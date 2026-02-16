@@ -381,12 +381,12 @@ class pyResponseTDI(FastLISAResponseParallelModule):
         self, t_data: np.ndarray, input_in: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray]:
         # remove input data that goes beyond orbital information
-        if t_data.max() > self.response_orbits.t.max():  # self.response_orbits.ltt_t.max():
+        if t_data.max() > self.response_orbits.ltt_t.max():
             warnings.warn(
                 "Input waveform is longer than available orbital information. Trimming to fit orbital information."
             )
 
-            max_ind = np.where(t_data <= self.response_orbits.t.max())[0][-1]  # np.where(t_data <= self.response_orbits.sc_t.max())[0][-1]
+            max_ind = np.where(t_data <= self.response_orbits.sc_t.max())[0][-1]
 
             t_data = t_data[:max_ind]
             input_in = input_in[:max_ind]
@@ -693,13 +693,11 @@ class ResponseWrapper(FastLISAResponseParallelModule):
 
         assert isinstance(orbits, Orbits)
 
-        if Tobs * YRSID_SI > orbits.t_base.max():  # Tobs * YRSID_SI > (orbits.ltt_t.max() - orbits.ltt_t.min()):
+        if Tobs * YRSID_SI > (orbits.sc_t.max() - orbits.sc_t.min()):
             warnings.warn(
-                f"Tobs is larger than available orbital information time array. Reducing Tobs to {orbits.t_base.max()}"
-                # f"Tobs is larger than available orbital information time array. Reducing Tobs to {orbits.ltt_t.max() - orbits.ltt_t.min()}"
+                f"Tobs is larger than available orbital information time array. Reducing Tobs to {orbits.sc_t.max() - orbits.sc_t.min()}"
             )
-            Tobs = orbits.t_base.max() / YRSID_SI
-            # Tobs = (orbits.ltt_t.max() - orbits.ltt_t.min()) / YRSID_SI
+            Tobs = (orbits.sc_t.max() - orbits.sc_t.min()) / YRSID_SI
         if n_overide is not None:
             if not isinstance(n_overide, int):
                 raise ValueError("n_overide must be an integer if not None.")
