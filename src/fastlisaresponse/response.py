@@ -135,7 +135,7 @@ class pyResponseTDI(FastLISAResponseParallelModule):
         self.half_order = int((order + 1) / 2)
 
         # setup TDI information
-        self.tdi = tdi
+        self.tdi = TDIConfig(tdi=tdi, force_backend=force_backend)
         self.tdi_chan = tdi_chan
 
         super().__init__(force_backend=force_backend)
@@ -159,7 +159,7 @@ class pyResponseTDI(FastLISAResponseParallelModule):
 
         # setup spacecraft links indexes
 
-        self.tdi_config = tdi
+        self.tdi_config = TDIConfig(tdi=tdi, force_backend=force_backend)
         
         # setup TDI info
         self._init_TDI_delays()
