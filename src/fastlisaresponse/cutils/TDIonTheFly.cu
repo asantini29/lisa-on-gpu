@@ -2069,7 +2069,11 @@ void td_spline_run_wave_tdi_kernel(TDSplineTDIWaveform *tdi_on_fly, int buffer_l
 {
     extern CUDA_SHARED char shared_mem[];
     void *buffer = (void*)shared_mem;
-    tdi_on_fly->run_wave_tdi(buffer, buffer_length, tdi_channels_arr, tdi_amp, tdi_phase, phi_ref,
+
+    // Reconstruct on device to get a proper device-side vtable
+    // (shallow cudaMemcpy carries the host vtable pointer, which crashes on virtual dispatch)
+    TDSplineTDIWaveform tdi_on_fly_here(tdi_on_fly->orbits, tdi_on_fly->tdi_config, tdi_on_fly->amp_spline, tdi_on_fly->phase_spline);
+    tdi_on_fly_here.run_wave_tdi(buffer, buffer_length, tdi_channels_arr, tdi_amp, tdi_phase, phi_ref,
         params, t_arr, N, num_bin, n_params, nchannels);
 }
 #endif
@@ -2271,7 +2275,11 @@ void fd_spline_run_wave_tdi_kernel(FDSplineTDIWaveform *tdi_on_fly, int buffer_l
 {
     extern CUDA_SHARED char shared_mem[];
     void *buffer = (void*)shared_mem;
-    tdi_on_fly->run_wave_tdi(buffer, buffer_length, tdi_channels_arr, tdi_amp, tdi_phase, phi_ref,
+
+    // Reconstruct on device to get a proper device-side vtable
+    // (shallow cudaMemcpy carries the host vtable pointer, which crashes on virtual dispatch)
+    FDSplineTDIWaveform tdi_on_fly_here(tdi_on_fly->orbits, tdi_on_fly->tdi_config, tdi_on_fly->amp_spline, tdi_on_fly->freq_spline);
+    tdi_on_fly_here.run_wave_tdi(buffer, buffer_length, tdi_channels_arr, tdi_amp, tdi_phase, phi_ref,
         params, t_arr, N, num_bin, n_params, nchannels);
 }
 #endif

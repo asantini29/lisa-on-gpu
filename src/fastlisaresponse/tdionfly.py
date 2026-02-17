@@ -183,7 +183,8 @@ class TDIonTheFly(FastLISAResponseParallelModule):
             self.t_arr, 
             tdi_amp.reshape(reshape_shape), 
             tdi_phase.reshape(reshape_shape), 
-            phase_ref.reshape(self.t_arr.shape)
+            phase_ref.reshape(self.t_arr.shape),
+            force_backend=self.backend.name.split("_")[-1]
         ), fill_splines=return_spline)
     
     def from_tdi_output(self, tdi_output: TDIOutput, fill_splines: Optional[bool] = False) -> FDTDIOutput:
@@ -292,7 +293,7 @@ class TDTDIonTheFly(TDIonTheFly):
     def from_tdi_output(self, tdi_output: TDIOutput, fill_splines: Optional[bool] = False) -> FDTDIOutput:
         assert self.xp.allclose(tdi_output.x, self.t_arr)
         return TDTDIOutput(
-            tdi_output.x, tdi_output.tdi_amp, tdi_output.tdi_phase, tdi_output.phase_ref, fill_splines=fill_splines
+            tdi_output.x, tdi_output.tdi_amp, tdi_output.tdi_phase, tdi_output.phase_ref, fill_splines=fill_splines, force_backend=tdi_output.backend.name.split("_")[-1]
         )
     
 
@@ -324,7 +325,7 @@ class TDIOutput(FastLISAResponseParallelModule):
             x_in =  self.xp.repeat(x[:, None, :], y.shape[1], axis=1)
         else:
             x_in = x.copy()
-
+        
         return CubicSplineInterpolant(x_in, y, **kwargs, force_backend=self.backend.name.split("_")[-1])
     
     @property
