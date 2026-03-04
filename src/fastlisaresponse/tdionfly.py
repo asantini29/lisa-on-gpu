@@ -344,10 +344,10 @@ class TDIOutput(FastLISAResponseParallelModule):
         return self.Xamp * self.xp.exp(-1j * (self.Xphase + self.phase_ref))
     @property
     def Y(self) -> np.ndarray:
-        return self.Yamp * self.xp.exp(-1j * (self.Xphase + self.phase_ref))
+        return self.Yamp * self.xp.exp(-1j * (self.Yphase + self.phase_ref))
     @property
     def Z(self) -> np.ndarray:
-        return self.Zamp * self.xp.exp(-1j * (self.Xphase + self.phase_ref))
+        return self.Zamp * self.xp.exp(-1j * (self.Zphase + self.phase_ref))
     @property
     def Xamp(self) -> np.ndarray:
         return self.tdi_amp[:, 0]
