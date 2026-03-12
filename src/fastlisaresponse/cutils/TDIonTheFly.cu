@@ -751,8 +751,13 @@ void gb_wdm_get_ll_kernel(double *d_h_out, double *h_h_out, Orbits* orbits, TDIC
         printf("CHECK12 %d\n", bin_i);
         
 #ifdef __CUDACC__        
-        d_h_out[bin_i] = 4.0 * block_reduce(d_h_tmp);
-        h_h_out[bin_i] = 4.0 * block_reduce(h_h_tmp);
+        double d_h_red = 4.0 * block_reduce(d_h_tmp);
+        double h_h_red = 4.0 * block_reduce(h_h_tmp);
+        if (threadIdx.x == 0)
+        {
+            d_h_out[bin_i] = d_h_red;
+            h_h_out[bin_i] = h_h_red;
+        }
         CUDA_SYNC_THREADS;
 #else
         d_h_out[bin_i] = 4.0 * d_h_tmp[0];
@@ -1597,19 +1602,15 @@ void LISATDIonTheFly::new_extract_amplitude_and_phase(int *count, bool *fix_coun
     // cumsum
     cumsum(count, Ns);
     CUDA_SYNC_THREADS;
-    for (int i = (start + 1); i < Ns; i += 1)
-    {
-        count[i] += count[i - 1];
-    }
-    CUDA_SYNC_THREADS;
+    // there was a double cumsum happening here.
 
 
     // 
-    for (int i = start; i < Ns - 1; i += 1)
+    for (int i = start; i < Ns - 1; i += incr)
     {
         flip[i] = pow(-1., count[i]);
         pjump[i] = count[i] * M_PI;
-    }    
+    }
     CUDA_SYNC_THREADS;
 
     if (THREAD_ZERO)
