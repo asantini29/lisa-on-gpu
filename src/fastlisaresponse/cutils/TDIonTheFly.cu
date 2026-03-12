@@ -1597,11 +1597,11 @@ void LISATDIonTheFly::new_extract_amplitude_and_phase(int *count, bool *fix_coun
     // cumsum
     cumsum(count, Ns);
     CUDA_SYNC_THREADS;
-    for (int i = (start + 1); i < Ns; i += 1)
-    {
-        count[i] += count[i - 1];
-    }
-    CUDA_SYNC_THREADS;
+    // for (int i = (start + 1); i < Ns; i += 1) //todo is this correct? should it be kept here?
+    // {
+    //     count[i] += count[i - 1];
+    // }
+    // CUDA_SYNC_THREADS;
 
 
     // 
