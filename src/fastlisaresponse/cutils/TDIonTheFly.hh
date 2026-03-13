@@ -339,6 +339,9 @@ class STFTGBComputationGroup{
     void get_ll_wrap(
         cmplx *d_h_out, cmplx *h_h_out, Orbits* orbits, TDIConfig *tdi_config, STFTFresnel* fresnel, STFTDomain* stft, double *params_all, int *data_index_all, int *noise_index_all, int num_bin, int nparams, double T, double t_ref
     );
+    void get_swap_ll_wrap(
+        cmplx *d_h_add_out, cmplx *d_h_remove_out, cmplx *add_add_out, cmplx *remove_remove_out, cmplx *add_remove_out, Orbits* orbits, TDIConfig *tdi_config, STFTFresnel* fresnel, STFTDomain* stft, double *params_add_all, double *params_remove_all, int *data_index_all, int *noise_index_all, int num_bin, int nparams, double T, double t_ref
+    );
 
 };
 

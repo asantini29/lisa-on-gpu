@@ -639,9 +639,9 @@ void WDMDomain::add_ip_swap_contrib(double *d_h_add_tmp, double *d_h_remove_tmp,
 
 #ifdef __CUDACC__
 CUDA_DEVICE
-double block_reduce(double *array) 
+double block_reduce(double *array)
 {
-     // Specialize BlockReduce for a 1D block of 128 threads of type int
+     // Specialize BlockReduce for a 1D block of NUM_THREADS_HERE threads of type double
     using BlockReduce = cub::BlockReduce<double, NUM_THREADS_HERE>;
     int tid = threadIdx.x;
     // Allocate shared memory for BlockReduce
@@ -649,6 +649,23 @@ double block_reduce(double *array)
     CUDA_SYNC_THREADS;
     double thread_data = array[tid];
     double output = BlockReduce(temp_storage).Sum(thread_data);
+    return output;
+}
+
+struct ComplexSumLocal {
+    CUDA_DEVICE cmplx operator()(const cmplx &a, const cmplx &b) const {
+        return a + b;
+    }
+};
+
+CUDA_DEVICE
+cmplx block_reduce_cmplx(cmplx *array) {
+    using BlockReduce = cub::BlockReduce<cmplx, NUM_THREADS_HERE>;
+    CUDA_SHARED typename BlockReduce::TempStorage temp_storage;
+    CUDA_SYNC_THREADS;
+    int tid = threadIdx.x;
+    cmplx thread_data = array[tid];
+    cmplx output = BlockReduce(temp_storage).Reduce(thread_data, ComplexSumLocal());
     return output;
 }
 #endif
@@ -862,7 +879,7 @@ void gb_stft_get_ll_kernel(cmplx *d_h_out, cmplx *h_h_out, Orbits* orbits, TDICo
                         fresnel_val[j] = fresnel->get_fourier_value(tdi_channel_amp[j], tdi_channel_phase[j], f0, fdot0, t_here, freq_here);
                     }
                 
-                    stft->add_ip_contrib(d_h_tmp, h_h_tmp, fresnel_val, freq_j_here, time_i, data_index, noise_index);    
+                    stft->add_ip_contrib(d_h_tmp, h_h_tmp, fresnel_val, time_i, freq_j_here, data_index, noise_index);
                 }
             }
         }
@@ -870,21 +887,20 @@ void gb_stft_get_ll_kernel(cmplx *d_h_out, cmplx *h_h_out, Orbits* orbits, TDICo
         #ifdef __CUDACC__
             // Reduce all per-thread contributions within this block using CUB.
             // The factor 4 comes from the one-sided inner-product convention.
-            cmplx d_h_red = 4.0 * domain->diff_comp * block_reduce_cmplx(d_h_tmp);
+            cmplx d_h_red = 4.0 * stft->diff_comp * block_reduce_cmplx(d_h_tmp);
             // Must sync again: CUB's TempStorage must not be overwritten until
             // all threads have completed the first reduction.
             CUDA_SYNC_THREADS;
-            cmplx h_h_red = 4.0 * domain->diff_comp * block_reduce_cmplx(h_h_tmp);
+            cmplx h_h_red = 4.0 * stft->diff_comp * block_reduce_cmplx(h_h_tmp);
             if (tid == 0)
             {
-                d_h_contrib[bin_i] = d_h_red;
-                h_h_contrib[bin_i] = h_h_red;
+                d_h_out[bin_i] = d_h_red;
+                h_h_out[bin_i] = h_h_red;
             }
             CUDA_SYNC_THREADS;
         #else
-            // CPU: num_blocks_x == 1, so write directly at index [bin].
-            d_h_contrib[bin_i] = 4.0 * domain->diff_comp * d_h_tmp[0];
-            h_h_contrib[bin_i] = 4.0 * domain->diff_comp * h_h_tmp[0];
+            d_h_out[bin_i] = 4.0 * stft->diff_comp * d_h_tmp[0];
+            h_h_out[bin_i] = 4.0 * stft->diff_comp * h_h_tmp[0];
         #endif
     }
 }
@@ -1148,11 +1164,11 @@ void gb_stft_swap_ll_kernel(cmplx *d_h_add_out, cmplx *d_h_remove_out, cmplx *ad
     int freq_j_add, freq_j_remove, freq_j_min, freq_j_max;
 
     #ifdef __CUDACC__
-        double d_h_add_red = 0.0;
-        double d_h_remove_red = 0.0;
-        double add_add_red = 0.0;
-        double remove_remove_red = 0.0;
-        double add_remove_red = 0.0;
+        cmplx d_h_add_red = cmplx(0.0, 0.0);
+        cmplx d_h_remove_red = cmplx(0.0, 0.0);
+        cmplx add_add_red = cmplx(0.0, 0.0);
+        cmplx remove_remove_red = cmplx(0.0, 0.0);
+        cmplx add_remove_red = cmplx(0.0, 0.0);
     #endif
 
 
@@ -1204,49 +1220,88 @@ void gb_stft_swap_ll_kernel(cmplx *d_h_add_out, cmplx *d_h_remove_out, cmplx *ad
                     double freq_here = f_min + freq_j_here * df;
                     for (int j = 0; j < 3; j += 1) // over channels
                     {
-                        fresnel->get_amp_phase(&tdi_channel_amp_add[j], &tdi_channel_phase_add[j], tdi_channel_add_val[j]); // get amplitude and phase
-                        fresnel->get_amp_phase(&tdi_channel_amp_remove[j], &tdi_channel_phase_remove[j], tdi_channel_remove_val[j]); // get amplitude and phase
-                        fresnel_add_val[j] = fresnel->get_fourier_value(tdi_channel_amp_add[j], tdi_channel_phase_add[j], f0_add, fdot0_add, t_here, freq_here);
-                        fresnel_remove_val[j] = fresnel->get_fourier_value(tdi_channel_amp_remove[j], tdi_channel_phase_remove[j], f0_remove, fdot0_remove, t_here, freq_here);
+                        fresnel->get_amp_phase(&tdi_channel_amp_add[j], &tdi_channel_phase_add[j], tdi_channel_val_add[j]); // get amplitude and phase
+                        fresnel->get_amp_phase(&tdi_channel_amp_remove[j], &tdi_channel_phase_remove[j], tdi_channel_val_remove[j]); // get amplitude and phase
+                        fresnel_val_add[j] = fresnel->get_fourier_value(tdi_channel_amp_add[j], tdi_channel_phase_add[j], f0_add, fdot0_add, t_here, freq_here);
+                        fresnel_val_remove[j] = fresnel->get_fourier_value(tdi_channel_amp_remove[j], tdi_channel_phase_remove[j], f0_remove, fdot0_remove, t_here, freq_here);
                     }
-                
-                    stft->add_ip_swap_contrib(d_h_add_tmp, d_h_remove_tmp, add_add_tmp, remove_remove_tmp, add_remove_tmp, fresnel_add_val, fresnel_remove_val, freq_j_here, time_i, data_index, noise_index);    
+
+                    stft->add_ip_swap_contrib(d_h_add_tmp, d_h_remove_tmp, add_add_tmp, remove_remove_tmp, add_remove_tmp, fresnel_val_add, fresnel_val_remove, time_i, freq_j_here, data_index, noise_index);
                 }
-                CUDA_SYNC_THREADS;
             }
         }
         CUDA_SYNC_THREADS;
         #ifdef __CUDACC__
             // Reduce all per-thread contributions within this block using CUB.
             // The factor 4 comes from the one-sided inner-product convention.
-            d_h_add_red = 4.0 * domain->diff_comp * block_reduce_cmplx(d_h_add_tmp);
-            CUDA_SYNC_THREADS
-            d_h_remove_red = 4.0 * domain->diff_comp * block_reduce_cmplx(d_h_remove_tmp);
-            CUDA_SYNC_THREADS
-            add_add_red = 4.0 * domain->diff_comp * block_reduce_cmplx(add_add_tmp);
-            CUDA_SYNC_THREADS
-            remove_remove_red = 4.0 * domain->diff_comp * block_reduce_cmplx(remove_remove_tmp);
-            CUDA_SYNC_THREADS
-            add_remove_red = 4.0 * domain->diff_comp * block_reduce_cmplx(add_remove_tmp);
-            
+            d_h_add_red = 4.0 * stft->diff_comp * block_reduce_cmplx(d_h_add_tmp);
+            CUDA_SYNC_THREADS;
+            d_h_remove_red = 4.0 * stft->diff_comp * block_reduce_cmplx(d_h_remove_tmp);
+            CUDA_SYNC_THREADS;
+            add_add_red = 4.0 * stft->diff_comp * block_reduce_cmplx(add_add_tmp);
+            CUDA_SYNC_THREADS;
+            remove_remove_red = 4.0 * stft->diff_comp * block_reduce_cmplx(remove_remove_tmp);
+            CUDA_SYNC_THREADS;
+            add_remove_red = 4.0 * stft->diff_comp * block_reduce_cmplx(add_remove_tmp);
+
             if (tid == 0)
             {
-               d_h_add_tmp[bin_i] = d_h_add_red;
-                d_h_remove_tmp[bin_i] = d_h_remove_red;
-                add_add_tmp[bin_i] = add_add_red;
-                remove_remove_tmp[bin_i] = remove_remove_red;
-                add_remove_tmp[bin_i] = add_remove_red;
+                d_h_add_out[bin_i] = d_h_add_red;
+                d_h_remove_out[bin_i] = d_h_remove_red;
+                add_add_out[bin_i] = add_add_red;
+                remove_remove_out[bin_i] = remove_remove_red;
+                add_remove_out[bin_i] = add_remove_red;
             }
             CUDA_SYNC_THREADS;
         #else
-            // CPU: num_blocks_x == 1, so write directly at index [bin].
-            d_h_add_out[bin_i] = 4.0 * domain->diff_comp * d_h_add_tmp[0];
-            d_h_remove_out[bin_i] = 4.0 * domain->diff_comp * d_h_remove_tmp[0];
-            add_add_out[bin_i] = 4.0 * domain->diff_comp * add_add_tmp[0];
-            remove_remove_out[bin_i] = 4.0 * domain->diff_comp * remove_remove_tmp[0];
-            add_remove_out[bin_i] = 4.0 * domain->diff_comp * add_remove_tmp[0];
+            d_h_add_out[bin_i] = 4.0 * stft->diff_comp * d_h_add_tmp[0];
+            d_h_remove_out[bin_i] = 4.0 * stft->diff_comp * d_h_remove_tmp[0];
+            add_add_out[bin_i] = 4.0 * stft->diff_comp * add_add_tmp[0];
+            remove_remove_out[bin_i] = 4.0 * stft->diff_comp * remove_remove_tmp[0];
+            add_remove_out[bin_i] = 4.0 * stft->diff_comp * add_remove_tmp[0];
         #endif
     }
+};
+
+void STFTGBComputationGroup::get_swap_ll_wrap(cmplx *d_h_add_out, cmplx *d_h_remove_out, cmplx *add_add_out, cmplx *remove_remove_out, cmplx *add_remove_out, Orbits* orbits, TDIConfig *tdi_config, STFTFresnel* fresnel, STFTDomain* stft, double *params_add_all, double *params_remove_all, int *data_index_all, int *noise_index_all, int num_bin, int nparams, double T, double t_ref)
+{
+    #ifdef __CUDACC__
+        Orbits *d_orbits;
+        cudaMalloc(&d_orbits, sizeof(Orbits));
+        gpuErrchk(cudaMemcpy(d_orbits, orbits, sizeof(Orbits), cudaMemcpyHostToDevice));
+
+        TDIConfig *d_tdi_config;
+        cudaMalloc(&d_tdi_config, sizeof(TDIConfig));
+        gpuErrchk(cudaMemcpy(d_tdi_config, tdi_config, sizeof(TDIConfig), cudaMemcpyHostToDevice));
+
+        STFTFresnel *d_fresnel;
+        cudaMalloc(&d_fresnel, sizeof(STFTFresnel));
+        gpuErrchk(cudaMemcpy(d_fresnel, fresnel, sizeof(STFTFresnel), cudaMemcpyHostToDevice));
+
+        STFTDomain *d_stft;
+        cudaMalloc(&d_stft, sizeof(STFTDomain));
+        gpuErrchk(cudaMemcpy(d_stft, stft, sizeof(STFTDomain), cudaMemcpyHostToDevice));
+
+        gb_stft_swap_ll_kernel<<<num_bin, NUM_THREADS_HERE>>>(d_h_add_out, d_h_remove_out, add_add_out, remove_remove_out, add_remove_out,
+            d_orbits, d_tdi_config, d_fresnel, d_stft,
+            params_add_all, params_remove_all,
+            data_index_all,
+            noise_index_all,
+            num_bin,
+            nparams,
+            T,
+            t_ref);
+
+        cudaDeviceSynchronize();
+        gpuErrchk(cudaGetLastError());
+
+        gpuErrchk(cudaFree(d_orbits));
+        gpuErrchk(cudaFree(d_tdi_config));
+        gpuErrchk(cudaFree(d_fresnel));
+        gpuErrchk(cudaFree(d_stft));
+    #else
+        gb_stft_swap_ll_kernel(d_h_add_out, d_h_remove_out, add_add_out, remove_remove_out, add_remove_out, orbits, tdi_config, fresnel, stft, params_add_all, params_remove_all, data_index_all, noise_index_all, num_bin, nparams, T, t_ref);
+    #endif
 };
 
 
