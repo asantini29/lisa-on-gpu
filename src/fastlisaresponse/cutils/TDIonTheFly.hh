@@ -2,9 +2,11 @@
 #define __TDI_ON_THE_FLY_HH__
 
 #include "Detector.hpp"
+#include "domains.hpp"
 #include "Interpolate.hh"
 #include "LISAResponse.hh"
 #include "gbt_global.h"
+#include "cuda_complex.hpp"
 
 
 #if defined(__CUDA_COMPILATION__) || defined(__CUDACC__)
@@ -330,6 +332,14 @@ void fd_spline_run_wave_tdi_wrap(FDSplineTDIWaveform *tdi_on_fly, cmplx *tdi_cha
 class GBComputationGroup{
   public:
     void gb_wdm_get_ll_wrap(double *d_h_out, double *h_h_out, Orbits* orbits, TDIConfig *tdi_config, WaveletLookupTable* wdm_lookup, WDMDomain* wdm, double *params_all, int *data_index_all, int *noise_index_all, int num_bin, int nparams, double T, double t_ref, int tdi_type);
+};
+
+class STFTGBComputationGroup{
+  public:
+    void get_ll_wrap(
+        cmplx *d_h_out, cmplx *h_h_out, Orbits* orbits, TDIConfig *tdi_config, STFTFresnel* fresnel, STFTDomain* stft, double *params_all, int *data_index_all, int *noise_index_all, int num_bin, int nparams, double T, double t_ref
+    );
+
 };
 
 #endif // __TDI_ON_THE_FLY_HH__
