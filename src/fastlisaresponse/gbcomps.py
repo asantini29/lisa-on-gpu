@@ -4,17 +4,30 @@ from lisatools.detector import Orbits, EqualArmlengthOrbits
 from copy import deepcopy
 from lisatools.domains import WDMLookupTable
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    try:
+        import cupy as cp
+    except (ImportError, ModuleNotFoundError):
+        import numpy as cp
 
-class GBWDMComputations(FastLISAResponseParallelModule):
-    def __init__(self, wdm_lookup_table, T, orbits=None, tdi_config=None, force_backend=None, d_d=0.0):
+import numpy as np
+
+
+class GBComputations(FastLISAResponseParallelModule):
+    def __init__(self, 
+                 T: float, 
+                 orbits: Orbits = None, 
+                 tdi_config: str | TDIConfig = None, 
+                 force_backend: str = None, 
+                 d_d: np.ndarray | cp.ndarray = None
+                 ):
         
         super().__init__(force_backend=force_backend)
         # setup orbits
         self.orbits = orbits
          # setup TDI info
         self.tdi_config = tdi_config
-        # setup WDM c class
-        self.wdm_lookup_table = wdm_lookup_table
         self.T = T
         self.d_d = d_d
         
@@ -23,7 +36,7 @@ class GBWDMComputations(FastLISAResponseParallelModule):
         return self._tdi_config
     
     @tdi_config.setter
-    def tdi_config(self, tdi_config: TDIConfig):
+    def tdi_config(self, tdi_config: str | TDIConfig):
         if tdi_config is None:
             tdi_config = TDIConfig("1st generation")
         elif isinstance(tdi_config, str):
@@ -63,6 +76,16 @@ class GBWDMComputations(FastLISAResponseParallelModule):
 
         self.cpp_orbits = self.backend.OrbitsWrap(*self._orbits.pycppdetector_args)
 
+    @classmethod
+    def supported_backends(cls):
+        return ["fastlisaresponse_" + _tmp for _tmp in cls.GPU_RECOMMENDED()]
+
+class GBWDMComputations(GBComputations):
+    def __init__(self, wdm_lookup_table, T, orbits=None, tdi_config=None, force_backend=None, d_d=0.0):
+        
+        super().__init__(T=T, orbits=orbits, tdi_config=tdi_config, force_backend=force_backend, d_d=d_d)
+        self.wdm_lookup_table = wdm_lookup_table
+
     @property
     def wdm_lookup_table(self) -> object:
         return self._wdm_lookup_table
@@ -89,10 +112,6 @@ class GBWDMComputations(FastLISAResponseParallelModule):
             wdm_lookup_table.NT,
             wdm_lookup_table.num_channel
         )
-
-    @classmethod
-    def supported_backends(cls):
-        return ["fastlisaresponse_" + _tmp for _tmp in cls.GPU_RECOMMENDED()]
 
     def get_ll_wdm(self, params, wdm_holder, data_index=None, noise_index=None):
         params_tmp = self.xp.atleast_2d(self.xp.asarray(params))
