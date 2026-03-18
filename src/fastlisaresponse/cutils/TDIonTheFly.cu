@@ -790,7 +790,7 @@ void gb_wdm_get_ll_kernel(double *d_h_out, double *h_h_out, Orbits* orbits, TDIC
 };
 
 CUDA_KERNEL
-void gb_stft_get_ll_kernel(cmplx *d_h_out, cmplx *h_h_out, Orbits* orbits, TDIConfig *tdi_config, STFTFresnel* fresnel, STFTDomain* stft, double *params_all, int *data_index_all, int *noise_index_all, int num_bin, int nparams, double T, double t_ref)
+void gb_stft_get_ll_kernel(cmplx *d_h_out, cmplx *h_h_out, Orbits* orbits, TDIConfig *tdi_config, STFTFresnel* fresnel, STFTDomain* stft, double *params_all, int *data_index_all, int *noise_index_all, int num_bin, int nparams, double T, double t_ref, int n_side_bins, double window_factor)
 {
     CUDA_SHARED cmplx d_h_tmp[NUM_THREADS_HERE];
     CUDA_SHARED cmplx h_h_tmp[NUM_THREADS_HERE];
@@ -867,7 +867,7 @@ void gb_stft_get_ll_kernel(cmplx *d_h_out, cmplx *h_h_out, Orbits* orbits, TDICo
 
             freq_j = stft->get_freq_index(f0);
 
-            for (int diff = -2; diff <= +2; diff += 1) // check 2 freq bins on either side to capture power that leaks out from main freq bin. probably needs testing.
+            for (int diff = -n_side_bins; diff <= +n_side_bins; diff += 1)
             {
                 int freq_j_here = freq_j + diff;
                 if ((freq_j_here >= 0) && (freq_j_here <= num_freqs - 1))
@@ -875,10 +875,10 @@ void gb_stft_get_ll_kernel(cmplx *d_h_out, cmplx *h_h_out, Orbits* orbits, TDICo
                     double freq_here = f_min + freq_j_here * df;
                     for (int j = 0; j < 3; j += 1) // over channels
                     {
-                        fresnel->get_amp_phase(&tdi_channel_amp[j], &tdi_channel_phase[j], tdi_channel_val[j]); // get amplitude and phasex`
-                        fresnel_val[j] = fresnel->get_fourier_value(tdi_channel_amp[j], tdi_channel_phase[j], f0, fdot0, t_here, freq_here);
+                        fresnel->get_amp_phase(&tdi_channel_amp[j], &tdi_channel_phase[j],  gcmplx::conj(tdi_channel_val[j])); // get amplitude and phase. Conjugate because of convention for Fresnel transform.
+                        fresnel_val[j] = 0.5 * fresnel->get_fourier_value(tdi_channel_amp[j], tdi_channel_phase[j], f0, fdot0, t_here, freq_here, window_factor); // The Fresnel kernel computes the FT of the full analytic signal (amplitude A). The STFT data is the DFT of the real signal Re[tdi_val], which has amplitude A/2 at positive frequencies
                     }
-                
+
                     stft->add_ip_contrib(d_h_tmp, h_h_tmp, fresnel_val, time_i, freq_j_here, data_index, noise_index);
                 }
             }
@@ -905,7 +905,7 @@ void gb_stft_get_ll_kernel(cmplx *d_h_out, cmplx *h_h_out, Orbits* orbits, TDICo
     }
 }
 
-void STFTGBComputationGroup::get_ll_wrap(cmplx *d_h_out, cmplx *h_h_out, Orbits* orbits, TDIConfig *tdi_config, STFTFresnel* fresnel, STFTDomain* stft, double *params_all, int *data_index_all, int *noise_index_all, int num_bin, int nparams, double T, double t_ref)
+void STFTGBComputationGroup::get_ll_wrap(cmplx *d_h_out, cmplx *h_h_out, Orbits* orbits, TDIConfig *tdi_config, STFTFresnel* fresnel, STFTDomain* stft, double *params_all, int *data_index_all, int *noise_index_all, int num_bin, int nparams, double T, double t_ref, int n_side_bins, double window_factor)
 {
     #ifdef __CUDACC__
         Orbits *d_orbits;
@@ -924,7 +924,7 @@ void STFTGBComputationGroup::get_ll_wrap(cmplx *d_h_out, cmplx *h_h_out, Orbits*
         cudaMalloc(&d_stft, sizeof(STFTDomain));
         gpuErrchk(cudaMemcpy(d_stft, stft, sizeof(STFTDomain), cudaMemcpyHostToDevice));
 
-        gb_stft_get_ll_kernel<<<num_bin, NUM_THREADS_HERE>>>(d_h_out, h_h_out, d_orbits, d_tdi_config, d_fresnel, d_stft, params_all, data_index_all, noise_index_all, num_bin, nparams, T, t_ref);
+        gb_stft_get_ll_kernel<<<num_bin, NUM_THREADS_HERE>>>(d_h_out, h_h_out, d_orbits, d_tdi_config, d_fresnel, d_stft, params_all, data_index_all, noise_index_all, num_bin, nparams, T, t_ref, n_side_bins, window_factor);
 
         cudaDeviceSynchronize();
         gpuErrchk(cudaGetLastError());
@@ -934,7 +934,7 @@ void STFTGBComputationGroup::get_ll_wrap(cmplx *d_h_out, cmplx *h_h_out, Orbits*
         gpuErrchk(cudaFree(d_fresnel));
         gpuErrchk(cudaFree(d_stft));
     #else
-        gb_stft_get_ll_kernel(d_h_out, h_h_out, orbits, tdi_config, fresnel, stft, params_all, data_index_all, noise_index_all, num_bin, nparams, T, t_ref);
+        gb_stft_get_ll_kernel(d_h_out, h_h_out, orbits, tdi_config, fresnel, stft, params_all, data_index_all, noise_index_all, num_bin, nparams, T, t_ref, n_side_bins, window_factor);
     #endif
 };
 
@@ -1102,7 +1102,7 @@ void gb_wdm_swap_ll_kernel(double *d_h_add_out, double *d_h_remove_out, double *
 };
 
 CUDA_KERNEL
-void gb_stft_swap_ll_kernel(cmplx *d_h_add_out, cmplx *d_h_remove_out, cmplx *add_add_out, cmplx *remove_remove_out, cmplx *add_remove_out, Orbits* orbits, TDIConfig *tdi_config, STFTFresnel* fresnel, STFTDomain* stft, double *params_add_all, double *params_remove_all, int *data_index_all, int *noise_index_all, int num_bin, int nparams, double T, double t_ref)
+void gb_stft_swap_ll_kernel(cmplx *d_h_add_out, cmplx *d_h_remove_out, cmplx *add_add_out, cmplx *remove_remove_out, cmplx *add_remove_out, Orbits* orbits, TDIConfig *tdi_config, STFTFresnel* fresnel, STFTDomain* stft, double *params_add_all, double *params_remove_all, int *data_index_all, int *noise_index_all, int num_bin, int nparams, double T, double t_ref, int n_side_bins, double window_factor)
 {
     CUDA_SHARED cmplx d_h_add_tmp[NUM_THREADS_HERE];
     CUDA_SHARED cmplx d_h_remove_tmp[NUM_THREADS_HERE];
@@ -1213,17 +1213,17 @@ void gb_stft_swap_ll_kernel(cmplx *d_h_add_out, cmplx *d_h_remove_out, cmplx *ad
             freq_j_min = (freq_j_add > freq_j_remove) ? freq_j_remove : freq_j_add;
             freq_j_max = (freq_j_add > freq_j_remove) ? freq_j_add : freq_j_remove;
 
-            for (int freq_j_here = freq_j_min - 2; freq_j_here <= freq_j_max + 2; freq_j_here += 1)
+            for (int freq_j_here = freq_j_min - n_side_bins; freq_j_here <= freq_j_max + n_side_bins; freq_j_here += 1)
             {
                 if ((freq_j_here >= 0) && (freq_j_here <= num_freqs - 1))
                 {
                     double freq_here = f_min + freq_j_here * df;
                     for (int j = 0; j < 3; j += 1) // over channels
                     {
-                        fresnel->get_amp_phase(&tdi_channel_amp_add[j], &tdi_channel_phase_add[j], tdi_channel_val_add[j]); // get amplitude and phase
-                        fresnel->get_amp_phase(&tdi_channel_amp_remove[j], &tdi_channel_phase_remove[j], tdi_channel_val_remove[j]); // get amplitude and phase
-                        fresnel_val_add[j] = fresnel->get_fourier_value(tdi_channel_amp_add[j], tdi_channel_phase_add[j], f0_add, fdot0_add, t_here, freq_here);
-                        fresnel_val_remove[j] = fresnel->get_fourier_value(tdi_channel_amp_remove[j], tdi_channel_phase_remove[j], f0_remove, fdot0_remove, t_here, freq_here);
+                        fresnel->get_amp_phase(&tdi_channel_amp_add[j], &tdi_channel_phase_add[j], gcmplx::conj(tdi_channel_val_add[j])); // get amplitude and phase. Conjugate because of convention for Fresnel transform.
+                        fresnel->get_amp_phase(&tdi_channel_amp_remove[j], &tdi_channel_phase_remove[j], gcmplx::conj(tdi_channel_val_remove[j])); // get amplitude and phase. Conjugate because of convention for Fresnel transform.
+                        fresnel_val_add[j] = 0.5 * fresnel->get_fourier_value(tdi_channel_amp_add[j], tdi_channel_phase_add[j], f0_add, fdot0_add, t_here, freq_here, window_factor); // 0.5 for real-signal amplitude at positive frequencies
+                        fresnel_val_remove[j] = 0.5 * fresnel->get_fourier_value(tdi_channel_amp_remove[j], tdi_channel_phase_remove[j], f0_remove, fdot0_remove, t_here, freq_here, window_factor); // 0.5 for real-signal amplitude at positive frequencies
                     }
 
                     stft->add_ip_swap_contrib(d_h_add_tmp, d_h_remove_tmp, add_add_tmp, remove_remove_tmp, add_remove_tmp, fresnel_val_add, fresnel_val_remove, time_i, freq_j_here, data_index, noise_index);
@@ -1263,7 +1263,7 @@ void gb_stft_swap_ll_kernel(cmplx *d_h_add_out, cmplx *d_h_remove_out, cmplx *ad
     }
 };
 
-void STFTGBComputationGroup::get_swap_ll_wrap(cmplx *d_h_add_out, cmplx *d_h_remove_out, cmplx *add_add_out, cmplx *remove_remove_out, cmplx *add_remove_out, Orbits* orbits, TDIConfig *tdi_config, STFTFresnel* fresnel, STFTDomain* stft, double *params_add_all, double *params_remove_all, int *data_index_all, int *noise_index_all, int num_bin, int nparams, double T, double t_ref)
+void STFTGBComputationGroup::get_swap_ll_wrap(cmplx *d_h_add_out, cmplx *d_h_remove_out, cmplx *add_add_out, cmplx *remove_remove_out, cmplx *add_remove_out, Orbits* orbits, TDIConfig *tdi_config, STFTFresnel* fresnel, STFTDomain* stft, double *params_add_all, double *params_remove_all, int *data_index_all, int *noise_index_all, int num_bin, int nparams, double T, double t_ref, int n_side_bins, double window_factor)
 {
     #ifdef __CUDACC__
         Orbits *d_orbits;
@@ -1290,7 +1290,9 @@ void STFTGBComputationGroup::get_swap_ll_wrap(cmplx *d_h_add_out, cmplx *d_h_rem
             num_bin,
             nparams,
             T,
-            t_ref);
+            t_ref,
+            n_side_bins,
+            window_factor);
 
         cudaDeviceSynchronize();
         gpuErrchk(cudaGetLastError());
@@ -1300,7 +1302,7 @@ void STFTGBComputationGroup::get_swap_ll_wrap(cmplx *d_h_add_out, cmplx *d_h_rem
         gpuErrchk(cudaFree(d_fresnel));
         gpuErrchk(cudaFree(d_stft));
     #else
-        gb_stft_swap_ll_kernel(d_h_add_out, d_h_remove_out, add_add_out, remove_remove_out, add_remove_out, orbits, tdi_config, fresnel, stft, params_add_all, params_remove_all, data_index_all, noise_index_all, num_bin, nparams, T, t_ref);
+        gb_stft_swap_ll_kernel(d_h_add_out, d_h_remove_out, add_add_out, remove_remove_out, add_remove_out, orbits, tdi_config, fresnel, stft, params_add_all, params_remove_all, data_index_all, noise_index_all, num_bin, nparams, T, t_ref, n_side_bins, window_factor);
     #endif
 };
 

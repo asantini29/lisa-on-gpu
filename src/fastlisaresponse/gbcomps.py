@@ -1,3 +1,4 @@
+from __future__ import annotations
 from .utils.parallelbase import FastLISAResponseParallelModule
 from fastlisaresponse.tdiconfig import TDIConfig
 from lisatools.detector import Orbits, EqualArmlengthOrbits
@@ -10,6 +11,8 @@ if TYPE_CHECKING:
         import cupy as cp
     except (ImportError, ModuleNotFoundError):
         import numpy as cp
+    
+    from lisatools.domaincomputation import STFTComputationGroup
 
 import numpy as np
 
@@ -17,10 +20,10 @@ import numpy as np
 class GBComputations(FastLISAResponseParallelModule):
     def __init__(self, 
                  T: float, 
+                 t_ref: float = 0.0,
                  orbits: Orbits = None, 
                  tdi_config: str | TDIConfig = None, 
                  force_backend: str = None, 
-                 d_d: np.ndarray | cp.ndarray = None
                  ):
         
         super().__init__(force_backend=force_backend)
@@ -29,7 +32,32 @@ class GBComputations(FastLISAResponseParallelModule):
          # setup TDI info
         self.tdi_config = tdi_config
         self.T = T
-        self.d_d = d_d
+
+        # GB generator reference time
+        self.t_ref = t_ref
+
+    @property
+    def T(self) -> float:
+        """Return observation time in seconds."""
+        return self._T
+    @T.setter
+    def T(self, T: float) -> None:
+        """Set observation time."""
+        self._T = T
+
+    @property
+    def t_ref(self) -> float:
+        """Return reference time for GB generator."""
+        return self._t_ref
+    @t_ref.setter    
+    def t_ref(self, t_ref: float) -> None:
+        """Set reference time for GB generator."""
+        self._t_ref = t_ref
+
+    @property
+    def num_params(self) -> int:
+        """Return number of parameters for the GB model."""
+        return 9
         
     @property
     def tdi_config(self) -> TDIConfig:
@@ -85,6 +113,7 @@ class GBWDMComputations(GBComputations):
         
         super().__init__(T=T, orbits=orbits, tdi_config=tdi_config, force_backend=force_backend, d_d=d_d)
         self.wdm_lookup_table = wdm_lookup_table
+        self.d_d = d_d
 
     @property
     def wdm_lookup_table(self) -> object:
@@ -169,3 +198,82 @@ class GBWDMComputations(GBComputations):
         # TODO: phase maximize
 
         return like_out
+
+class STFTGBComputations(GBComputations):
+    """Class for GB computations using STFT domain.
+    
+    """
+    def __init__(self,
+                 stft_comps: STFTComputationGroup,
+                 T: float,
+                 t_ref: float = 0.0,
+                 orbits: Orbits = None,
+                 tdi_config: str | TDIConfig = None,
+                 force_backend: str = None,
+                 n_side_bins: int = 2,
+                 window_factor: float = 1.0
+                ):
+        super().__init__(T=T, t_ref=t_ref, orbits=orbits, tdi_config=tdi_config, force_backend=force_backend)
+        self.stft_comps = stft_comps
+        self.n_side_bins = n_side_bins
+        self.window_factor = window_factor
+
+    @property
+    def stft_comps(self) -> STFTComputationGroup:
+        return self._stft_comps
+
+    @stft_comps.setter
+    def stft_comps(self, stft_comps: STFTComputationGroup) -> None:
+        self._stft_comps = stft_comps
+
+    def get_ll_stft(self,
+                    params: np.ndarray | cp.ndarray,
+                    data_index=None,
+                    noise_index=None,
+                    phase_maximize: bool = False
+                    ) -> np.ndarray | cp.ndarray:
+        """Compute log-likelihood for given parameters and data/noise indices."""
+        params_tmp = self.xp.atleast_2d(self.xp.asarray(params))
+        num_bin = params_tmp.shape[0]
+        params_in = params_tmp.flatten().copy()
+
+        d_h_out = self.xp.zeros(num_bin, dtype=self.xp.complex128)
+        h_h_out = self.xp.zeros(num_bin, dtype=self.xp.complex128)
+
+        if data_index is None:
+            data_index = self.xp.zeros(num_bin, dtype=self.xp.int32)
+        else:
+            assert data_index.dtype == self.xp.int32
+
+        if noise_index is None:
+            noise_index = self.xp.zeros(num_bin, dtype=self.xp.int32)
+        else:
+            assert noise_index.dtype == self.xp.int32
+
+        self.backend.STFTGBComputationGroupWrap().get_ll(
+            d_h_out,
+            h_h_out,
+            self.cpp_orbits,
+            self.cpp_tdi_config,
+            self.stft_comps.cpp_fresnel,
+            self.stft_comps.cpp_domain,
+            params_in,
+            data_index,
+            noise_index,
+            num_bin,
+            self.num_params,
+            self.T,
+            self.t_ref,
+            self.n_side_bins,
+            self.window_factor
+        )
+
+        if phase_maximize:
+            raise NotImplementedError("Phase maximization not implemented yet.")
+        
+        print(f"d_h_out: {d_h_out}")
+        print(f"h_h_out: {h_h_out}")
+
+        like_out = -1. / 2. * (self.stft_comps.d_d[data_index] + h_h_out - 2 * d_h_out)
+
+        return like_out.real

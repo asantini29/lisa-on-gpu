@@ -76,16 +76,64 @@ void GBComputationGroupWrap::gb_wdm_get_ll(array_type<double>d_h_out, array_type
 {
     // from the parent class
     gb_wdm_get_ll_wrap(
-        return_pointer_and_check_length(d_h_out, "d_h_out", num_bin, 1), 
-        return_pointer_and_check_length(h_h_out, "h_h_out", num_bin, 1), 
-        orbits_wrap->orbits, 
-        tdi_config_wrap->tdi_config, 
-        wdm_lookup_wrap->wdm_lookup, 
-        wdm_wrap->wdm, 
-        return_pointer_and_check_length(params_all, "params_all", nparams, num_bin), 
-        return_pointer_and_check_length(data_index_all, "data_index_all", num_bin, 1), 
-        return_pointer_and_check_length(noise_index_all, "noise_index_all", num_bin, 1), 
+        return_pointer_and_check_length(d_h_out, "d_h_out", num_bin, 1),
+        return_pointer_and_check_length(h_h_out, "h_h_out", num_bin, 1),
+        orbits_wrap->orbits,
+        tdi_config_wrap->tdi_config,
+        wdm_lookup_wrap->wdm_lookup,
+        wdm_wrap->wdm,
+        return_pointer_and_check_length(params_all, "params_all", nparams, num_bin),
+        return_pointer_and_check_length(data_index_all, "data_index_all", num_bin, 1),
+        return_pointer_and_check_length(noise_index_all, "noise_index_all", num_bin, 1),
         num_bin, nparams, T, t_ref, tdi_type);
+}
+
+void STFTGBComputationGroupWrap::get_ll(
+    array_type<std::complex<double>> d_h_out, array_type<std::complex<double>> h_h_out,
+    OrbitsWrap_responselisa* orbits_wrap, TDIConfigWrap *tdi_config_wrap,
+    STFTFresnelWrap* fresnel_wrap, STFTDomainWrap* stft_wrap,
+    array_type<double> params_all,
+    array_type<int> data_index_all, array_type<int> noise_index_all,
+    int num_bin, int nparams, double T, double t_ref, int n_side_bins, double window_factor)
+{
+    get_ll_wrap(
+        (cmplx*)return_pointer_and_check_length(d_h_out, "d_h_out", num_bin, 1),
+        (cmplx*)return_pointer_and_check_length(h_h_out, "h_h_out", num_bin, 1),
+        orbits_wrap->orbits,
+        tdi_config_wrap->tdi_config,
+        fresnel_wrap->fresnel,
+        stft_wrap->domain,
+        return_pointer_and_check_length(params_all, "params_all", nparams, num_bin),
+        return_pointer_and_check_length(data_index_all, "data_index_all", num_bin, 1),
+        return_pointer_and_check_length(noise_index_all, "noise_index_all", num_bin, 1),
+        num_bin, nparams, T, t_ref, n_side_bins, window_factor);
+}
+
+void STFTGBComputationGroupWrap::get_swap_ll(
+    array_type<std::complex<double>> d_h_add_out, array_type<std::complex<double>> d_h_remove_out,
+    array_type<std::complex<double>> add_add_out, array_type<std::complex<double>> remove_remove_out,
+    array_type<std::complex<double>> add_remove_out,
+    OrbitsWrap_responselisa* orbits_wrap, TDIConfigWrap *tdi_config_wrap,
+    STFTFresnelWrap* fresnel_wrap, STFTDomainWrap* stft_wrap,
+    array_type<double> params_add_all, array_type<double> params_remove_all,
+    array_type<int> data_index_all, array_type<int> noise_index_all,
+    int num_bin, int nparams, double T, double t_ref, int n_side_bins, double window_factor)
+{
+    get_swap_ll_wrap(
+        (cmplx*)return_pointer_and_check_length(d_h_add_out, "d_h_add_out", num_bin, 1),
+        (cmplx*)return_pointer_and_check_length(d_h_remove_out, "d_h_remove_out", num_bin, 1),
+        (cmplx*)return_pointer_and_check_length(add_add_out, "add_add_out", num_bin, 1),
+        (cmplx*)return_pointer_and_check_length(remove_remove_out, "remove_remove_out", num_bin, 1),
+        (cmplx*)return_pointer_and_check_length(add_remove_out, "add_remove_out", num_bin, 1),
+        orbits_wrap->orbits,
+        tdi_config_wrap->tdi_config,
+        fresnel_wrap->fresnel,
+        stft_wrap->domain,
+        return_pointer_and_check_length(params_add_all, "params_add_all", nparams, num_bin),
+        return_pointer_and_check_length(params_remove_all, "params_remove_all", nparams, num_bin),
+        return_pointer_and_check_length(data_index_all, "data_index_all", num_bin, 1),
+        return_pointer_and_check_length(noise_index_all, "noise_index_all", num_bin, 1),
+        num_bin, nparams, T, t_ref, n_side_bins, window_factor);
 }
 
 std::string get_module_path_tdionthefly() {
@@ -272,7 +320,16 @@ void tdionthefly_part(py::module &m) {
 #endif
     .def(py::init<>())
     .def("gb_wdm_get_ll", &GBComputationGroupWrap::gb_wdm_get_ll, "Log-likelihood computation.")
-    
+    ;
+
+#if defined(__CUDA_COMPILATION__) || defined(__CUDACC__)
+    py::class_<STFTGBComputationGroupWrap>(m, "STFTGBComputationGroupWrapGPU")
+#else
+    py::class_<STFTGBComputationGroupWrap>(m, "STFTGBComputationGroupWrapCPU")
+#endif
+    .def(py::init<>())
+    .def("get_ll", &STFTGBComputationGroupWrap::get_ll, "STFT log-likelihood computation.")
+    .def("get_swap_ll", &STFTGBComputationGroupWrap::get_swap_ll, "STFT swap log-likelihood computation.")
     ;
 }
 

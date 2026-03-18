@@ -24,6 +24,7 @@ namespace py = pybind11;
 #define WaveletLookupTableWrap WaveletLookupTableWrapGPU
 #define WDMDomainWrap WDMDomainWrapGPU
 #define GBComputationGroupWrap GBComputationGroupWrapGPU
+#define STFTGBComputationGroupWrap STFTGBComputationGroupWrapGPU
 #else
 #define GBTDIonTheFlyWrap GBTDIonTheFlyWrapCPU
 #define FDSplineTDIWaveformWrap FDSplineTDIWaveformWrapCPU
@@ -31,6 +32,7 @@ namespace py = pybind11;
 #define WaveletLookupTableWrap WaveletLookupTableWrapCPU
 #define WDMDomainWrap WDMDomainWrapCPU
 #define GBComputationGroupWrap GBComputationGroupWrapCPU
+#define STFTGBComputationGroupWrap STFTGBComputationGroupWrapCPU
 #endif
 
 
@@ -182,6 +184,27 @@ class WDMDomainWrap : public ReturnPointerBase {
 class GBComputationGroupWrap: public GBComputationGroup, public ReturnPointerBase {
   public:
     void gb_wdm_get_ll(array_type<double>d_h_out, array_type<double>h_h_out, OrbitsWrap_responselisa* orbits_wrap, TDIConfigWrap *tdi_config_wrap, WaveletLookupTableWrap* wdm_lookup_wrap, WDMDomainWrap* wdm_wrap, array_type<double>params_all, array_type<int>data_index_all, array_type<int>noise_index_all, int num_bin, int nparams, double T, double t_ref, int tdi_type);
+};
+
+class STFTGBComputationGroupWrap: public STFTGBComputationGroup, public ReturnPointerBase {
+  public:
+    void get_ll(
+        array_type<std::complex<double>> d_h_out, array_type<std::complex<double>> h_h_out,
+        OrbitsWrap_responselisa* orbits_wrap, TDIConfigWrap *tdi_config_wrap,
+        STFTFresnelWrap* fresnel_wrap, STFTDomainWrap* stft_wrap,
+        array_type<double> params_all,
+        array_type<int> data_index_all, array_type<int> noise_index_all,
+        int num_bin, int nparams, double T, double t_ref, int n_side_bins, double window_factor);
+
+    void get_swap_ll(
+        array_type<std::complex<double>> d_h_add_out, array_type<std::complex<double>> d_h_remove_out,
+        array_type<std::complex<double>> add_add_out, array_type<std::complex<double>> remove_remove_out,
+        array_type<std::complex<double>> add_remove_out,
+        OrbitsWrap_responselisa* orbits_wrap, TDIConfigWrap *tdi_config_wrap,
+        STFTFresnelWrap* fresnel_wrap, STFTDomainWrap* stft_wrap,
+        array_type<double> params_add_all, array_type<double> params_remove_all,
+        array_type<int> data_index_all, array_type<int> noise_index_all,
+        int num_bin, int nparams, double T, double t_ref, int n_side_bins, double window_factor);
 };
 
 #endif // __BINDING_TOF_HPP__
