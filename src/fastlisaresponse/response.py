@@ -503,8 +503,8 @@ class pyResponseTDI(FastLISAResponseParallelModule):
         input_in = self.xp.asarray(input_in)
 
         assert np.abs(t0_shift_to_data) < self.dt
-
-        t_arr = np.arange(len(input_in)) * self.dt + (t0 + t0_shift_to_data)
+        
+        t_arr = self.xp.arange(len(input_in)) * self.dt + (t0 + t0_shift_to_data)
         t_arr, input_in = self._data_time_check(t_arr, input_in)
 
         assert len(input_in) >= self.num_pts
