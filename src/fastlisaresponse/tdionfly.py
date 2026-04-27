@@ -8,6 +8,7 @@ from gpubackendtools import wrapper
         
 import time
 import h5py
+from .response import ecliptic_to_icrs
 
 try:
     import cupy as cp
@@ -300,11 +301,11 @@ class TDTDIonTheFly(TDIonTheFly):
 class TDIOutput(FastLISAResponseParallelModule):
     def __init__(self, x, tdi_amp, tdi_phase, phase_ref, fill_splines=True, **kwargs):
         
+        self.x = x
         self.fill_splines = fill_splines
         if self.fill_splines:
             self._splines = {}
-
-        self.x = x
+        
         super().__init__(**kwargs)
 
         # need to be after for proper setter
@@ -325,8 +326,8 @@ class TDIOutput(FastLISAResponseParallelModule):
             x_in =  self.xp.repeat(x[:, None, :], y.shape[1], axis=1)
         else:
             x_in = x.copy()
-        
-        return CubicSplineInterpolant(x_in, y, **kwargs, force_backend=self.backend.name.split("_")[-1])
+
+        return CubicSplineInterpolant(x_in, y, force_backend=self.backend.name.split("_")[-1], **kwargs)
     
     @property
     def num_bin(self) -> int:
@@ -621,8 +622,10 @@ class GBTDIonTheFly(TDIonTheFly):
         self._wave_gen = self.backend.GBTDIonTheFlyWrap(self.cpp_orbits, self.cpp_tdi_config, self.T, self.t_ref)
         return self._wave_gen
     
-    def __call__(self, amp, f0, fdot0, fddot0, phi0, inc, psi, lam, beta, return_spline: bool = False) -> TDIOutput:
+    def __call__(self, amp, f0, fdot0, fddot0, phi0, inc, psi, lam, beta, convert_to_ra_dec: bool = True, return_spline: bool = False) -> TDIOutput:
         
+        if convert_to_ra_dec:
+            lam, beta = ecliptic_to_icrs(lam, beta)
         params = self.xp.asarray([amp, f0, fdot0, fddot0, phi0, inc, psi, lam, beta]).T.flatten().copy()
 
         assert len(params) == 9 * self.num_sub
