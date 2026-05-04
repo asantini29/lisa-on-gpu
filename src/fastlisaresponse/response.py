@@ -428,7 +428,7 @@ class pyResponseTDI(FastLISAResponseParallelModule):
             input_in = input_in[:max_ind]
         return (t_data, input_in)
 
-    def get_projections(self, input_in, lam, beta, t0_shift_to_data=0.0, t0=0.0, t_buffer=10000.0):
+    def get_projections(self, input_in, lam, beta, t0_shift_to_data=0.0, t0=0.0, t_buffer=10000.0, run_async=False):
         """Compute projections of GW signal on to LISA constellation
 
         Args:
@@ -441,6 +441,7 @@ class pyResponseTDI(FastLISAResponseParallelModule):
                 and interpolation towards earlier times, the beginning of the waveform
                 is garbage. ``t_buffer`` tells the waveform generator where to start the waveform
                 compared to ``t0``.
+            run_async (bool, optional): If True, run the response generation asynchronously. (Default: ``False``)
 
         Raises:
             ValueError: If ``t_buffer`` is not large enough.
@@ -529,6 +530,7 @@ class pyResponseTDI(FastLISAResponseParallelModule):
             self.E_in,
             self.projections_start_ind,
             t0,
+            run_async
         )
 
         self.t_arr_proj = t_arr
@@ -540,7 +542,7 @@ class pyResponseTDI(FastLISAResponseParallelModule):
         """Return links as an array"""
         return self.delayed_links_flat.reshape(3, -1)
 
-    def get_tdi_delays(self, t_arr=None, y_gw=None):
+    def get_tdi_delays(self, t_arr=None, y_gw=None, run_async=False):
         """Get TDI combinations from projections.
 
         This functions generates the TDI combinations from the projections
@@ -556,6 +558,7 @@ class pyResponseTDI(FastLISAResponseParallelModule):
                 The links must be entered in the proper order in the code.
                 The link order is given in the orbits class: ``orbits.LINKS``. 
                 (Default: ``None``)
+            run_async (bool, optional): If True, run the TDI generation asynchronously. (Default: ``False``)
 
         Returns:
             tuple: (X,Y,Z) or (A,E,T) or (A,E)
@@ -619,6 +622,7 @@ class pyResponseTDI(FastLISAResponseParallelModule):
             len(self.A_in),
             self.E_in,
             self.tdi_start_ind,
+            run_async
         )
 
         if self.tdi_chan == "XYZ":
@@ -770,12 +774,13 @@ class ResponseWrapper(FastLISAResponseParallelModule):
     def supported_backends(cls):
         return ["fastlisaresponse_" + _tmp for _tmp in cls.GPU_RECOMMENDED()]
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args, run_async=False, **kwargs):
         """Run the waveform and response generation
 
         Args:
             *args (list): Arguments to the waveform generator. This must include
                 the sky coordinates.
+            run_async (bool): Whether to run the response generation asynchronously.
             **kwargs (dict): kwargs necessary for the waveform generator.
 
         Return:
@@ -812,8 +817,8 @@ class ResponseWrapper(FastLISAResponseParallelModule):
 
         # TODO: make this customizable
         # self.response_model.get_projections(h, lam, beta, t0=self.t0, t_buffer=self.t_buffer)
-        self.response_model.get_projections(h, ra, dec, t0_shift_to_data=self.t0_shift_to_data, t0=self.t0, t_buffer=self.t_buffer)
-        tdi_out = self.response_model.get_tdi_delays()  # will take care of t0 automatically to match projections
+        self.response_model.get_projections(h, ra, dec, t0_shift_to_data=self.t0_shift_to_data, t0=self.t0, t_buffer=self.t_buffer, run_async=run_async)
+        tdi_out = self.response_model.get_tdi_delays(run_async=run_async)  # will take care of t0 automatically to match projections
 
         out = list(tdi_out)
         if self.remove_garbage is True:  # bool

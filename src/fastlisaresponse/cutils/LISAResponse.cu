@@ -404,7 +404,7 @@ void TDI_delay(double *delayed_links, double *input_links, int num_inputs, int n
 }
 
 void LISAResponse::get_tdi_delays(double *delayed_links, double *input_links, int num_inputs, int num_delays, double *t_arr,
-                    int order, double sampling_frequency, int buffer_integer, double *A_in, double deps, int num_A, double *E_in, int tdi_start_ind)
+                    int order, double sampling_frequency, int buffer_integer, double *A_in, double deps, int num_A, double *E_in, int tdi_start_ind, bool run_async)
 {
     
     if (orbits == NULL)
@@ -417,21 +417,40 @@ void LISAResponse::get_tdi_delays(double *delayed_links, double *input_links, in
     dim3 gridDim(num_blocks, tdi_config->num_units);
 
     Orbits *orbits_gpu;
-    gpuErrchk(cudaMalloc(&orbits_gpu, sizeof(Orbits)));
-    gpuErrchk(cudaMemcpy(orbits_gpu, orbits, sizeof(Orbits), cudaMemcpyHostToDevice));
+
+    if (run_async){
+        gpuErrchk(cudaMallocAsync(&orbits_gpu, sizeof(Orbits), cudaStreamDefault));
+        gpuErrchk(cudaMemcpyAsync(orbits_gpu, orbits, sizeof(Orbits), cudaMemcpyHostToDevice, cudaStreamDefault));
+    }
+    else{
+        gpuErrchk(cudaMalloc(&orbits_gpu, sizeof(Orbits)));
+        gpuErrchk(cudaMemcpy(orbits_gpu, orbits, sizeof(Orbits), cudaMemcpyHostToDevice));  
+    }
 
     TDIConfig *tdi_config_gpu;
-    gpuErrchk(cudaMalloc(&tdi_config_gpu, sizeof(TDIConfig)));
-    gpuErrchk(cudaMemcpy(tdi_config_gpu, tdi_config, sizeof(TDIConfig), cudaMemcpyHostToDevice));
+
+    if (run_async){
+        gpuErrchk(cudaMallocAsync(&tdi_config_gpu, sizeof(TDIConfig), cudaStreamDefault));
+        gpuErrchk(cudaMemcpyAsync(tdi_config_gpu, tdi_config, sizeof(TDIConfig), cudaMemcpyHostToDevice, cudaStreamDefault));
+    }
+    else{
+        gpuErrchk(cudaMalloc(&tdi_config_gpu, sizeof(TDIConfig)));
+        gpuErrchk(cudaMemcpy(tdi_config_gpu, tdi_config, sizeof(TDIConfig), cudaMemcpyHostToDevice));
+    }
 
     // printf("RUNNING: %d\n", i);
     TDI_delay<<<gridDim, NUM_THREADS_RESPONSE>>>(delayed_links, input_links, num_inputs, num_delays, t_arr,
                                         order, sampling_frequency, buffer_integer, A_in, deps, num_A, E_in, tdi_start_ind, orbits_gpu, tdi_config_gpu);
-    cudaDeviceSynchronize();
-    gpuErrchk(cudaGetLastError());
-
-    gpuErrchk(cudaFree(orbits_gpu));
-    gpuErrchk(cudaFree(tdi_config_gpu));
+    if (run_async){
+        gpuErrchk(cudaGetLastError());
+        gpuErrchk(cudaFreeAsync(orbits_gpu, cudaStreamDefault));
+        gpuErrchk(cudaFreeAsync(tdi_config_gpu, cudaStreamDefault));
+    }else{
+        cudaDeviceSynchronize();
+        gpuErrchk(cudaGetLastError());
+        gpuErrchk(cudaFree(orbits_gpu));
+        gpuErrchk(cudaFree(tdi_config_gpu));
+    }
 
 
 #else
@@ -685,7 +704,7 @@ void LISAResponse::get_response(double *y_gw, double *t_data, double *k_in, doub
                   int num_delays,
                   cmplx* input_in, int num_inputs, int order,
                   double sampling_frequency, int buffer_integer,
-                  double *A_in, double deps, int num_A, double *E_in, int projections_start_ind, double t0)
+                  double *A_in, double deps, int num_A, double *E_in, int projections_start_ind, double t0, bool run_async)
 {
 
     if (orbits == NULL)
@@ -700,8 +719,14 @@ void LISAResponse::get_response(double *y_gw, double *t_data, double *k_in, doub
 
     // copy self to GPU
     Orbits *orbits_gpu;
-    gpuErrchk(cudaMalloc(&orbits_gpu, sizeof(Orbits)));
-    gpuErrchk(cudaMemcpy(orbits_gpu, orbits, sizeof(Orbits), cudaMemcpyHostToDevice));
+    if (run_async){
+        gpuErrchk(cudaMallocAsync(&orbits_gpu, sizeof(Orbits), cudaStreamDefault));
+        gpuErrchk(cudaMemcpyAsync(orbits_gpu, orbits, sizeof(Orbits), cudaMemcpyHostToDevice, cudaStreamDefault));
+    }
+    else{
+        gpuErrchk(cudaMalloc(&orbits_gpu, sizeof(Orbits)));
+        gpuErrchk(cudaMemcpy(orbits_gpu, orbits, sizeof(Orbits), cudaMemcpyHostToDevice));  
+    }
 
     dim3 gridDim(num_blocks, 1);
 
@@ -711,10 +736,16 @@ void LISAResponse::get_response(double *y_gw, double *t_data, double *k_in, doub
                                        input_in, num_inputs, order, sampling_frequency, buffer_integer,
                                        A_in, deps, num_A, E_in, projections_start_ind,
                                        orbits_gpu, t0);
-    cudaDeviceSynchronize();
-    gpuErrchk(cudaGetLastError());
+    
+    if (run_async){
+        gpuErrchk(cudaGetLastError());
+        gpuErrchk(cudaFreeAsync(orbits_gpu, cudaStreamDefault));
+    }else{
+        cudaDeviceSynchronize();
+        gpuErrchk(cudaGetLastError());
 
-    gpuErrchk(cudaFree(orbits_gpu));
+        gpuErrchk(cudaFree(orbits_gpu));
+    }
 #else
 
     // CPU waveform generation
