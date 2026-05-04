@@ -15,7 +15,7 @@ namespace py = pybind11;
 
 
 void LISAResponseWrap::get_tdi_delays_wrap(array_type<double> delayed_links_, array_type<double> input_links_, int num_inputs, int num_delays, array_type<double> t_arr_,
-                    int order, double sampling_frequency, int buffer_integer, array_type<double> A_in_, double deps, int num_A, array_type<double> E_in_, int tdi_start_ind, bool run_async = false)
+                    int order, double sampling_frequency, int buffer_integer, array_type<double> A_in_, double deps, int num_A, array_type<double> E_in_, int tdi_start_ind, bool run_async)
 {
     response->get_tdi_delays(
         return_pointer_and_check_length(delayed_links_, "delayed_links", num_delays, 3),
@@ -35,7 +35,7 @@ void LISAResponseWrap::get_response_wrap(array_type<double> y_gw_, array_type<do
     int num_delays,
     array_type<std::complex<double>> input_in_, int num_inputs, int order,
     double sampling_frequency, int buffer_integer,
-    array_type<double> A_in_, double deps, int num_A, array_type<double> E_in_, int projections_start_ind, double t0, bool run_async = false)
+    array_type<double> A_in_, double deps, int num_A, array_type<double> E_in_, int projections_start_ind, double t0, bool run_async)
 {
     response->get_response(
         return_pointer_and_check_length(y_gw_, "y_gw", num_delays, 6),
