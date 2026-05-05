@@ -449,9 +449,14 @@ class pyResponseTDI(FastLISAResponseParallelModule):
         lam = np.atleast_1d(np.asarray(lam, dtype=np.float64))
         beta = np.atleast_1d(np.asarray(beta, dtype=np.float64))
 
+        batch_size = len(lam)
+
         assert np.abs(t0_shift_to_data) < self.dt, "t0_shift_to_data should be less than the time step of the data (dt)."
         t0_arr = self.xp.atleast_1d(self.xp.asarray(t0, dtype=np.float64)) + t0_shift_to_data
-        batch_size = len(lam)
+        if t0_arr.ndim == 1 and t0_arr.shape[0] == 1:
+            # make t0_arr the same shape as lam and beta for easier handling later
+            t0_arr = t0_arr.repeat(batch_size)
+
         assert len(beta) == batch_size and len(t0_arr) == batch_size
         self.batch_size = batch_size
 
@@ -701,7 +706,7 @@ class ResponseWrapper(FastLISAResponseParallelModule):
         is_ecliptic_latitude (bool, optional): If True, the latitudinal sky
             coordinate is the ecliptic latitude. If False, thes latitudinal sky
             coordinate is the polar angle. In this case, the code will
-            convert it with :math:`\beta=\pi / 2 - \Theta`. (Default: :code:`True`)
+            convert it with :math:`\beta=\\pi / 2 - \\Theta`. (Default: :code:`True`)
         force_backend (str, optional): If given, run this class on the requested backend. 
             Options are ``"cpu"``, ``"cuda11x"``, ``"cuda12x"``, ``"cuda13x"``. (default: ``None``)
         remove_garbage (bool or str, optional): If True, it removes everything before ``t_buffer``
