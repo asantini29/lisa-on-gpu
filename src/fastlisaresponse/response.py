@@ -508,12 +508,6 @@ class pyResponseTDI(FastLISAResponseParallelModule):
         k_in = np.zeros(batch_size * 3, dtype=np.float64)
         u_in = np.zeros(batch_size * 3, dtype=np.float64)
         v_in = np.zeros(batch_size * 3, dtype=np.float64)
-        # for b in range(batch_size):
-        #     cb = np.cos(beta[b]); sb = np.sin(beta[b])
-        #     cl = np.cos(lam[b]);  sl = np.sin(lam[b])
-        #     v_in[b*3:b*3+3] = [-sb*cl, -sb*sl, cb]
-        #     u_in[b*3:b*3+3] = [sl, -cl, 0.0]
-        #     k_in[b*3:b*3+3] = [-cb*cl, -cb*sl, -sb]
 
         cb = np.cos(beta)
         sb = np.sin(beta)
@@ -839,14 +833,19 @@ class ResponseWrapper(FastLISAResponseParallelModule):
         kwargs["T"] = self.Tobs
         kwargs["dt"] = self.dt
 
-        # generate one waveform per batch element and stack
-        h_list = []
-        for b in range(batch_size):
-            h_b = self.waveform_gen(*args, **kwargs)
-            if self.flip_hx:
-                h_b = h_b.real - 1j * h_b.imag
-            h_list.append(self.xp.asarray(h_b))
-        h = self.xp.stack(h_list, axis=0)  # (batch_size, num_pts)
+        # # generate one waveform per batch element and stack
+        # h_list = []
+        # for b in range(batch_size):
+        #     h_b = self.waveform_gen(*args, **kwargs)
+        #     if self.flip_hx:
+        #         h_b = h_b.real - 1j * h_b.imag
+        #     h_list.append(self.xp.asarray(h_b))
+        # h = self.xp.stack(h_list, axis=0)  # (batch_size, num_pts)
+
+        # assume waveform generator can take in batch of sky coordinates and produce batch of waveforms
+        h = self.waveform_gen(*args, **kwargs)  # (batch_size, num_pts)
+        if self.flip_hx:
+            h = h.real - 1j * h.imag
 
         # convert sky coords
         ra_arr = np.zeros(batch_size)
