@@ -279,6 +279,8 @@ class pyResponseTDI(FastLISAResponseParallelModule):
         if not self._response_orbits.configured:
             self._response_orbits.configure(linear_interp_setup=True)
 
+        self._t_orbit_max = float(self.response_orbits.ltt_t.max())
+
     @property
     def tdi_orbits(self) -> Orbits:
         """TDI function orbits."""
@@ -352,60 +354,13 @@ class pyResponseTDI(FastLISAResponseParallelModule):
 
     def _init_TDI_delays(self):
         """Initialize TDI specific information"""
-
-        # setup the actual TDI combination
-        # if self.tdi in ["1st generation", "2nd generation"]:
-        #     # tdi 1.0
-        #     tdi_combinations = [
-        #         {"link": 13, "links_for_delay": [], "sign": +1},
-        #         {"link": 31, "links_for_delay": [13], "sign": +1},
-        #         {"link": 12, "links_for_delay": [13, 31], "sign": +1},
-        #         {"link": 21, "links_for_delay": [13, 31, 12], "sign": +1},
-        #         {"link": 12, "links_for_delay": [], "sign": -1},
-        #         {"link": 21, "links_for_delay": [12], "sign": -1},
-        #         {"link": 13, "links_for_delay": [12, 21], "sign": -1},
-        #         {"link": 31, "links_for_delay": [12, 21, 13], "sign": -1},
-        #     ]
-
-        #     if self.tdi == "2nd generation":
-        #         # tdi 2.0 is tdi 1.0 + additional terms
-        #         tdi_combinations += [
-        #             {"link": 12, "links_for_delay": [13, 31, 12, 21], "sign": +1},
-        #             {"link": 21, "links_for_delay": [13, 31, 12, 21, 12], "sign": +1},
-        #             {
-        #                 "link": 13,
-        #                 "links_for_delay": [13, 31, 12, 21, 12, 21],
-        #                 "sign": +1,
-        #             },
-        #             {
-        #                 "link": 31,
-        #                 "links_for_delay": [13, 31, 12, 21, 12, 21, 13],
-        #                 "sign": +1,
-        #             },
-        #             {"link": 13, "links_for_delay": [12, 21, 13, 31], "sign": -1},
-        #             {"link": 31, "links_for_delay": [12, 21, 13, 31, 13], "sign": -1},
-        #             {
-        #                 "link": 12,
-        #                 "links_for_delay": [12, 21, 13, 31, 13, 31],
-        #                 "sign": -1,
-        #             },
-        #             {
-        #                 "link": 21,
-        #                 "links_for_delay": [12, 21, 13, 31, 13, 31, 12],
-        #                 "sign": -1,
-        #             },
-        #         ]
-
-        # elif isinstance(self.tdi, list):
-        #     tdi_combinations = self.tdi
-
-        # else:
-        #     raise ValueError(
-        #         "tdi kwarg should be '1st generation', '2nd generation', or a list with a specific tdi combination."
-        #     )
-        # self.tdi_combinations = tdi_combinations
-
+        
         assert isinstance(self.tdi, TDIConfig)
+        assert np.all(
+            (np.diff(self.tdi.tdi_operation_index) == 0)
+            | (np.diff(self.tdi.tdi_operation_index) == 1)
+        )
+
 
     @property
     def y_gw(self):
@@ -418,13 +373,13 @@ class pyResponseTDI(FastLISAResponseParallelModule):
     ) -> Tuple[np.ndarray, np.ndarray]:
 
         # remove input data that goes beyond orbital information
-        if np.any((t_data + t0_arr.reshape(-1, 1)).max(axis=-1) > self.response_orbits.ltt_t.max()):
+        if np.any((t_data + t0_arr.reshape(-1, 1)).max(axis=-1) > self._t_orbit_max):
             warnings.warn(
                 "Input waveform is longer than available orbital information. Trimming to fit orbital information."
             )
 
             # max_ind = np.where(t_data <= self.response_orbits.sc_t.max())[0][-1]
-            max_ind = np.where((t_data.reshape(1, -1) + t0_arr.reshape(-1, 1)) <= self.response_orbits.ltt_t.max())[1][-1]
+            max_ind = np.where((t_data.reshape(1, -1) + t0_arr.reshape(-1, 1)) <= self._t_orbit_max)[1][-1]
 
             t_data = t_data[:max_ind]
             input_in = input_in[:, :max_ind]
@@ -446,8 +401,8 @@ class pyResponseTDI(FastLISAResponseParallelModule):
             ValueError: If ``t_buffer`` is not large enough.
         """
         # --- batch detection ---
-        lam = np.atleast_1d(np.asarray(lam, dtype=np.float64))
-        beta = np.atleast_1d(np.asarray(beta, dtype=np.float64))
+        lam = self.xp.atleast_1d(self.xp.asarray(lam, dtype=self.xp.float64))
+        beta = self.xp.atleast_1d(self.xp.asarray(beta, dtype=self.xp.float64))
 
         batch_size = len(lam)
 
@@ -457,7 +412,7 @@ class pyResponseTDI(FastLISAResponseParallelModule):
             # make t0_arr the same shape as lam and beta for easier handling later
             t0_arr = t0_arr.repeat(batch_size)
 
-        assert len(beta) == batch_size and len(t0_arr) == batch_size
+        #assert len(beta) == batch_size and len(t0_arr) == batch_size
         self.batch_size = batch_size
 
         self.tdi_start_ind = int(t_buffer / self.dt)
@@ -505,14 +460,14 @@ class pyResponseTDI(FastLISAResponseParallelModule):
         assert num_inputs_per_source >= self.num_pts
 
         # --- build batched sky vectors (flat: batch_size * 3) ---
-        k_in = np.zeros(batch_size * 3, dtype=np.float64)
-        u_in = np.zeros(batch_size * 3, dtype=np.float64)
-        v_in = np.zeros(batch_size * 3, dtype=np.float64)
+        k_in = self.xp.zeros(batch_size * 3, dtype=self.xp.float64)
+        u_in = self.xp.zeros(batch_size * 3, dtype=self.xp.float64)
+        v_in = self.xp.zeros(batch_size * 3, dtype=self.xp.float64)
 
-        cb = np.cos(beta)
-        sb = np.sin(beta)
-        cl = np.cos(lam)
-        sl = np.sin(lam)
+        cb = self.xp.cos(beta)
+        sb = self.xp.sin(beta)
+        cl = self.xp.cos(lam)
+        sl = self.xp.sin(lam)
 
         v_in[0::3] = -sb * cl
         v_in[1::3] = -sb * sl
@@ -525,9 +480,6 @@ class pyResponseTDI(FastLISAResponseParallelModule):
         k_in[2::3] = -sb
 
         self.nlinks = 6
-        k_in = self.xp.asarray(k_in)
-        u_in = self.xp.asarray(u_in)
-        v_in = self.xp.asarray(v_in)
 
         input_flat = input_in.reshape(-1)  # (batch_size * num_inputs_per_source,)
 
@@ -615,19 +567,14 @@ class pyResponseTDI(FastLISAResponseParallelModule):
             assert self.t_arr_proj is not None
             t_arr = self.t_arr_proj
 
-        assert np.all(
-            (np.diff(self.tdi.tdi_operation_index) == 0)
-            | (np.diff(self.tdi.tdi_operation_index) == 1)
-        )
+        # _, unit_starts, unit_lengths = np.unique(
+        #     self.tdi.tdi_operation_index,
+        #     return_index=True,
+        #     return_counts=True,
+        # )
 
-        _, unit_starts, unit_lengths = np.unique(
-            self.tdi.tdi_operation_index,
-            return_index=True,
-            return_counts=True,
-        )
-
-        unit_starts = unit_starts.astype(np.int32)
-        unit_lengths = unit_lengths.astype(np.int32)
+        # unit_starts = unit_starts.astype(np.int32)
+        # unit_lengths = unit_lengths.astype(np.int32)
 
         self.tdi_gen(
             self.delayed_links_flat,
