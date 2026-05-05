@@ -410,46 +410,52 @@ class pyResponseTDI(FastLISAResponseParallelModule):
     @property
     def y_gw(self):
         """Projections along the arms"""
-        return self.y_gw_flat.reshape(self.nlinks, -1)
+        raw = self.y_gw_flat.reshape(self.batch_size, self.nlinks, -1)
+        return raw[0] if self.batch_size == 1 else raw
 
     def _data_time_check(
-        self, t_data: np.ndarray, input_in: np.ndarray
+        self, t_data: np.ndarray, input_in: np.ndarray, t0_arr: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray]:
 
         # remove input data that goes beyond orbital information
-        if t_data.max() > self.response_orbits.ltt_t.max():
+        if np.any((t_data + t0_arr.reshape(-1, 1)).max(axis=-1) > self.response_orbits.ltt_t.max()):
             warnings.warn(
                 "Input waveform is longer than available orbital information. Trimming to fit orbital information."
             )
 
-            max_ind = np.where(t_data <= self.response_orbits.sc_t.max())[0][-1]
+            # max_ind = np.where(t_data <= self.response_orbits.sc_t.max())[0][-1]
+            max_ind = np.where((t_data.reshape(1, -1) + t0_arr.reshape(-1, 1)) <= self.response_orbits.ltt_t.max())[1][-1]
 
             t_data = t_data[:max_ind]
-            input_in = input_in[:max_ind]
+            input_in = input_in[:, :max_ind]
         return (t_data, input_in)
 
     def get_projections(self, input_in, lam, beta, t0_shift_to_data=0.0, t0=0.0, t_buffer=10000.0, run_async=False):
         """Compute projections of GW signal on to LISA constellation
 
         Args:
-            input_in (xp.ndarray): Input complex time-domain signal. It should be of the form:
-                :math:`h_+ + ih_x`. If using the GPU for the response, this should be a CuPy array.
-            lam (double): Ecliptic Longitude in radians.
-            beta (double): Ecliptic Latitude in radians.
-            t0 (double): Initial time at which to start the waveform. 
-            t_buffer (double, optional): Buffer time from ``t0``. Because of the delays
-                and interpolation towards earlier times, the beginning of the waveform
-                is garbage. ``t_buffer`` tells the waveform generator where to start the waveform
-                compared to ``t0``.
-            run_async (bool, optional): If True, run the response generation asynchronously. (Default: ``False``)
+            input_in (xp.ndarray): Input complex time-domain signal, shape ``(num_pts,)`` for a
+                single source or ``(batch_size, num_pts)`` for a batch.
+            lam (double or array): Ecliptic Longitude in radians. Array of length ``batch_size`` for batch.
+            beta (double or array): Ecliptic Latitude in radians. Array of length ``batch_size`` for batch.
+            t0 (double or array): Absolute start time(s) in seconds. Scalar or array of length ``batch_size``.
+            t_buffer (double, optional): Buffer time from ``t0``. (Default: ``10000.0``)
+            run_async (bool, optional): If True, run asynchronously. (Default: ``False``)
 
         Raises:
             ValueError: If ``t_buffer`` is not large enough.
-
-
         """
+        # --- batch detection ---
+        lam = np.atleast_1d(np.asarray(lam, dtype=np.float64))
+        beta = np.atleast_1d(np.asarray(beta, dtype=np.float64))
+
+        assert np.abs(t0_shift_to_data) < self.dt, "t0_shift_to_data should be less than the time step of the data (dt)."
+        t0_arr = self.xp.atleast_1d(self.xp.asarray(t0, dtype=np.float64)) + t0_shift_to_data
+        batch_size = len(lam)
+        assert len(beta) == batch_size and len(t0_arr) == batch_size
+        self.batch_size = batch_size
+
         self.tdi_start_ind = int(t_buffer / self.dt)
-        # get necessary buffer for TDI
         self.check_tdi_buffer = int(100.0 * self.sampling_frequency) + 4 * self.order
 
         tmp_orbits = deepcopy(self.response_orbits.x_base)
@@ -473,43 +479,60 @@ class pyResponseTDI(FastLISAResponseParallelModule):
                 "Need to increase t_buffer. The initial buffer is not large enough."
             )
 
-        # determine sky vectors
-        k = np.zeros(3, dtype=np.float64)
-        u = np.zeros(3, dtype=np.float64)
-        v = np.zeros(3, dtype=np.float64)
+        # --- promote input_in to (batch_size, num_pts) then flatten ---
+        input_in = self.xp.asarray(input_in)
+        if input_in.ndim == 1:
+            input_in = input_in.reshape(1, -1)
+        assert input_in.shape[0] == batch_size
+        num_inputs_per_source = input_in.shape[1]
 
-        self.num_total_points = len(input_in)
+        # shared relative time array (same for all sources)
+        t_arr = self.xp.arange(num_inputs_per_source, dtype=self.xp.float64) * self.dt
 
-        cosbeta = np.cos(beta)
-        sinbeta = np.sin(beta)
+        # orbit bounds check (worst-case absolute time across batch)
+        t_arr, input_in = self._data_time_check(
+            t_data=t_arr,
+            input_in=input_in,
+            t0_arr=t0_arr,
+        )
+        num_inputs_per_source = input_in.shape[1]
 
-        coslam = np.cos(lam)
-        sinlam = np.sin(lam)
+        assert num_inputs_per_source >= self.num_pts
 
-        v[0] = -sinbeta * coslam
-        v[1] = -sinbeta * sinlam
-        v[2] = cosbeta
-        u[0] = sinlam
-        u[1] = -coslam
-        u[2] = 0.0
-        k[0] = -cosbeta * coslam
-        k[1] = -cosbeta * sinlam
-        k[2] = -sinbeta
+        # --- build batched sky vectors (flat: batch_size * 3) ---
+        k_in = np.zeros(batch_size * 3, dtype=np.float64)
+        u_in = np.zeros(batch_size * 3, dtype=np.float64)
+        v_in = np.zeros(batch_size * 3, dtype=np.float64)
+        # for b in range(batch_size):
+        #     cb = np.cos(beta[b]); sb = np.sin(beta[b])
+        #     cl = np.cos(lam[b]);  sl = np.sin(lam[b])
+        #     v_in[b*3:b*3+3] = [-sb*cl, -sb*sl, cb]
+        #     u_in[b*3:b*3+3] = [sl, -cl, 0.0]
+        #     k_in[b*3:b*3+3] = [-cb*cl, -cb*sl, -sb]
+
+        cb = np.cos(beta)
+        sb = np.sin(beta)
+        cl = np.cos(lam)
+        sl = np.sin(lam)
+
+        v_in[0::3] = -sb * cl
+        v_in[1::3] = -sb * sl
+        v_in[2::3] = cb
+        u_in[0::3] = sl
+        u_in[1::3] = -cl
+        u_in[2::3] = 0.0
+        k_in[0::3] = -cb * cl
+        k_in[1::3] = -cb * sl
+        k_in[2::3] = -sb
 
         self.nlinks = 6
-        k_in = self.xp.asarray(k)
-        u_in = self.xp.asarray(u)
-        v_in = self.xp.asarray(v)
+        k_in = self.xp.asarray(k_in)
+        u_in = self.xp.asarray(u_in)
+        v_in = self.xp.asarray(v_in)
 
-        input_in = self.xp.asarray(input_in)
+        input_flat = input_in.reshape(-1)  # (batch_size * num_inputs_per_source,)
 
-        assert np.abs(t0_shift_to_data) < self.dt
-        
-        t_arr = self.xp.arange(len(input_in)) * self.dt + (t0 + t0_shift_to_data)
-        t_arr, input_in = self._data_time_check(t_arr, input_in)
-
-        assert len(input_in) >= self.num_pts
-        y_gw = self.xp.zeros((self.nlinks * self.num_pts,), dtype=self.xp.float64)
+        y_gw = self.xp.zeros(batch_size * self.nlinks * self.num_pts, dtype=self.xp.float64)
 
         self.response_gen(
             y_gw,
@@ -518,9 +541,9 @@ class pyResponseTDI(FastLISAResponseParallelModule):
             u_in,
             v_in,
             self.dt,
-            len(input_in),
-            input_in,
-            len(input_in),
+            num_inputs_per_source,
+            input_flat,
+            num_inputs_per_source,
             self.order,
             self.sampling_frequency,
             self.buffer_integer,
@@ -529,18 +552,21 @@ class pyResponseTDI(FastLISAResponseParallelModule):
             len(self.A_in),
             self.E_in,
             self.projections_start_ind,
-            t0,
-            run_async
+            t0_arr,
+            batch_size,
+            run_async,
         )
 
         self.t_arr_proj = t_arr
+        self.t0_arr = t0_arr
         self.y_gw_flat = y_gw
         self.y_gw_length = self.num_pts
 
     @property
     def XYZ(self):
         """Return links as an array"""
-        return self.delayed_links_flat.reshape(3, -1)
+        raw = self.delayed_links_flat.reshape(self.batch_size, 3, -1)
+        return raw[0] if self.batch_size == 1 else raw
 
     def get_tdi_delays(self, t_arr=None, y_gw=None, run_async=False):
         """Get TDI combinations from projections.
@@ -569,7 +595,7 @@ class pyResponseTDI(FastLISAResponseParallelModule):
 
         """
         self.delayed_links_flat = self.xp.zeros(
-            (3, self.num_pts), dtype=self.xp.float64
+            self.batch_size * 3 * self.num_pts, dtype=self.xp.float64
         )
 
         # y_gw entered directly
@@ -589,10 +615,6 @@ class pyResponseTDI(FastLISAResponseParallelModule):
         else:
             assert self.t_arr_proj is not None
             t_arr = self.t_arr_proj
-
-        self.delayed_links_flat = self.delayed_links_flat.flatten()
-    
-        num_units = int(self.tdi.tdi_operation_index.max() + 1)
 
         assert np.all(
             (np.diff(self.tdi.tdi_operation_index) == 0)
@@ -622,22 +644,22 @@ class pyResponseTDI(FastLISAResponseParallelModule):
             len(self.A_in),
             self.E_in,
             self.tdi_start_ind,
-            run_async
+            self.t0_arr,
+            self.batch_size,
+            run_async,
         )
 
+        xyz = self.XYZ  # (3, num_pts) if batch_size==1, else (batch_size, 3, num_pts)
+        if self.batch_size == 1:
+            X, Y, Z = xyz
+        else:
+            X, Y, Z = xyz[:, 0, :], xyz[:, 1, :], xyz[:, 2, :]
+
         if self.tdi_chan == "XYZ":
-            X, Y, Z = self.XYZ
             return X, Y, Z
-
-        elif self.tdi_chan == "AET" or self.tdi_chan == "AE":
-            X, Y, Z = self.XYZ
+        elif self.tdi_chan in ("AET", "AE"):
             A, E, T = AET(X, Y, Z)
-            if self.tdi_chan == "AET":
-                return A, E, T
-
-            else:
-                return A, E
-
+            return (A, E, T) if self.tdi_chan == "AET" else (A, E)
         else:
             raise ValueError("tdi_chan must be 'XYZ', 'AET' or 'AE'.")
 
@@ -787,51 +809,64 @@ class ResponseWrapper(FastLISAResponseParallelModule):
             list: TDI Channels.
 
         """
-
         args = list(args)
 
-        # get sky coords
-        beta = args[self.index_beta]
-        lam = args[self.index_lambda]
+        # detect batch from sky coords
+        lam_arr = np.atleast_1d(np.asarray(args[self.index_lambda], dtype=np.float64))
+        beta_arr = np.atleast_1d(np.asarray(args[self.index_beta], dtype=np.float64))
+        batch_size = len(lam_arr)
 
-        # remove them from the list if waveform generator does not take them
+        # broadcast t0 across batch
+        t0_arr = np.broadcast_to(
+            np.atleast_1d(np.asarray(self.t0, dtype=np.float64)), (batch_size,)
+        ).copy()
+
+        # remove sky coords from args once (pop higher index first to avoid shifting)
         if self.remove_sky_coords:
-            args.pop(self.index_beta)
-            args.pop(self.index_lambda)
+            hi = max(self.index_beta, self.index_lambda)
+            lo = min(self.index_beta, self.index_lambda)
+            args.pop(hi)
+            args.pop(lo)
 
-        # transform polar angle
         if not self.is_ecliptic_latitude:
-            beta = np.pi / 2.0 - beta
+            beta_arr = np.pi / 2.0 - beta_arr
 
-        # add the new Tobs and dt info to the waveform generator kwargs
         kwargs["T"] = self.Tobs
         kwargs["dt"] = self.dt
 
-        # get the waveform
-        h = self.waveform_gen(*args, **kwargs)
+        # generate one waveform per batch element and stack
+        h_list = []
+        for b in range(batch_size):
+            h_b = self.waveform_gen(*args, **kwargs)
+            if self.flip_hx:
+                h_b = h_b.real - 1j * h_b.imag
+            h_list.append(self.xp.asarray(h_b))
+        h = self.xp.stack(h_list, axis=0)  # (batch_size, num_pts)
 
-        if self.flip_hx:
-            h = h.real - 1j * h.imag
+        # convert sky coords
+        ra_arr = np.zeros(batch_size)
+        dec_arr = np.zeros(batch_size)
+        for b in range(batch_size):
+            ra_arr[b], dec_arr[b] = ecliptic_to_icrs(lam_arr[b], beta_arr[b])
 
-        ra, dec = ecliptic_to_icrs(lam, beta)
-
-        # TODO: make this customizable
-        # self.response_model.get_projections(h, lam, beta, t0=self.t0, t_buffer=self.t_buffer)
-        self.response_model.get_projections(h, ra, dec, t0_shift_to_data=self.t0_shift_to_data, t0=self.t0, t_buffer=self.t_buffer, run_async=run_async)
-        tdi_out = self.response_model.get_tdi_delays(run_async=run_async)  # will take care of t0 automatically to match projections
+        self.response_model.get_projections(
+            h, ra_arr, dec_arr,
+            t0_shift_to_data=self.t0_shift_to_data,
+            t0=t0_arr,
+            t_buffer=self.t_buffer,
+            run_async=run_async,
+        )
+        tdi_out = self.response_model.get_tdi_delays(run_async=run_async)
 
         out = list(tdi_out)
-        if self.remove_garbage is True:  # bool
+        if self.remove_garbage is True:
             for i in range(len(out)):
-                out[i] = out[i][
-                    self.response_model.tdi_start_ind : -self.response_model.tdi_start_ind
-                ]
-
-        elif isinstance(self.remove_garbage, str):  # bool
+                out[i] = out[i][..., self.response_model.tdi_start_ind:-self.response_model.tdi_start_ind]
+        elif isinstance(self.remove_garbage, str):
             if self.remove_garbage != "zero":
                 raise ValueError("remove_garbage must be True, False, or 'zero'.")
             for i in range(len(out)):
-                out[i][: self.response_model.tdi_start_ind] = 0.0
-                out[i][-self.response_model.tdi_start_ind :] = 0.0
+                out[i][..., :self.response_model.tdi_start_ind] = 0.0
+                out[i][..., -self.response_model.tdi_start_ind:] = 0.0
 
         return out
